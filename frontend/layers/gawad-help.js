@@ -54,7 +54,7 @@
     b.id = PILL_ID;
     b.setAttribute('role', 'button');
     b.setAttribute('aria-label', 'التعليمات — دليل الاستخدام');
-    b.innerHTML = '<span class="jwd-hi">؟</span><span class="jwd-lb"><b>التعليمات</b><i>دليل الاستخدام</i></span><span class="jwd-ch">‹</span>';
+    b.innerHTML = '<span class="jwd-lb"><b>التعليمات</b><i>دليل الاستخدام</i></span><span class="jwd-hi">؟</span><span class="jwd-ch">‹</span>';
     (function(){
       if (document.getElementById('jwd-help-style2')) return;
       var st2 = document.createElement('style'); st2.id = 'jwd-help-style2';
