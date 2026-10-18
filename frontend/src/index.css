@@ -3635,3 +3635,30 @@ body:has([data-testid="public-order"]) {
   [data-testid="public-order"].po-portal-shell { padding-top: 4px !important; }
   [data-testid="public-order"] .po-main-card.po-dashboard-card { padding: 9px !important; }
 }
+
+/* --- تقليص أقصى للمسافات العمودية (2026-10-19 ج3) --- */
+[data-testid="public-order"] .po-dashboard-content { gap: 4px !important; }
+[data-testid="public-order"].po-portal-shell { padding-top: 4px !important; }
+[data-testid="public-order"] .po-main-card.po-dashboard-card { padding: 8px !important; }
+[data-testid="public-order"] .po-dashboard-head { margin-bottom: 2px !important; }
+[data-testid="public-order"] .po-bottom-dock { margin-top: 4px !important; }
+[data-testid="public-order"] .po-hero-card { padding: 10px !important; }
+[data-testid="public-order"] .po-section-head { margin-bottom: 6px !important; }
+[data-testid="public-order"] .po-quick-grid { margin-bottom: 8px !important; gap: 6px !important; }
+[data-testid="public-order"] .po-notifs-list { padding-top: 6px !important; gap: 6px !important; }
+[data-testid="public-order"] .po-notif-item { min-height: 58px !important; padding: 8px 10px !important; }
+[data-testid="public-order"] .po-notif-item-message { margin-top: 3px !important; }
+[data-testid="public-order"] .po-notif-item-date { margin-top: 3px !important; }
+[data-testid="public-order"] .po-topbar { margin-bottom: 10px !important; }
+[data-testid="public-order"] .po-form-hero { margin-bottom: 10px !important; }
+[data-testid="public-order"] .po-favorite-popover { max-height: min(78vh, 460px); }
+[data-testid="public-order"] .po-dashboard-card .po-service-tabs { margin-bottom: 0 !important; }
+[data-testid="public-order"] .po-dashboard-content > * { margin-bottom: 0 !important; }
+@media (max-width: 430px) {
+  [data-testid="public-order"] .po-dashboard-content { gap: 3px !important; }
+  [data-testid="public-order"].po-portal-shell { padding-top: 2px !important; }
+  [data-testid="public-order"] .po-main-card.po-dashboard-card { padding: 7px !important; }
+  [data-testid="public-order"] .po-bottom-dock { margin-top: 4px !important; }
+  [data-testid="public-order"] .po-hero-card { padding: 9px !important; }
+  [data-testid="public-order"] .po-notif-item { min-height: 54px !important; }
+}
