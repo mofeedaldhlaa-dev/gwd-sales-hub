@@ -12,15 +12,16 @@
 
   /* ---------- الأنماط ---------- */
   var css = ''
-    + '#' + WRAP_ID + '{display:flex;justify-content:center;width:100%;margin:12px 0 5px;}'
-    + '#' + PILL_ID + '{display:inline-flex;align-items:center;justify-content:center;gap:9px;height:44px;min-height:44px;'
-    + 'padding:0 17px;border:1px solid rgba(212,175,55,.42);border-radius:999px;background:linear-gradient(135deg,#1b0f35,#452480 55%,#6C4BC9);'
-    + 'color:#fff;font-family:inherit;font-size:13.5px;font-weight:800;line-height:1;cursor:pointer;'
-    + 'box-shadow:0 8px 18px rgba(27,15,53,.18),0 2px 5px rgba(27,15,53,.10),inset 0 1px 0 rgba(255,255,255,.16);'
-    + '-webkit-tap-highlight-color:transparent;transition:transform .16s ease,box-shadow .16s ease;}'
-    + '#' + PILL_ID + ':active{transform:translateY(1px);box-shadow:0 5px 12px rgba(27,15,53,.16),inset 0 1px 0 rgba(255,255,255,.12);}'
-    + '#' + PILL_ID + ' .jwd-hi{display:flex;align-items:center;justify-content:center;width:25px;height:25px;flex:0 0 25px;'
-    + 'border-radius:50%;background:#d4af37;color:#1b0f35;font-size:16px;font-weight:800;line-height:1;}';
+    + '#' + WRAP_ID + '{display:flex;justify-content:center;width:100%;margin:18px 0 0;}'
+    + '#' + PILL_ID + '{display:inline-flex;align-items:center;justify-content:center;gap:9px;height:42px;min-height:42px;box-sizing:border-box;'
+    + 'padding:0 17px;border:1px solid rgba(108,75,201,.22);border-radius:999px;background:#ffffff;'
+    + 'color:#452480;font-family:inherit;font-size:13.5px;font-weight:800;line-height:1;cursor:pointer;'
+    + 'box-shadow:0 6px 16px rgba(27,15,53,.10);-webkit-tap-highlight-color:transparent;'
+    + 'transition:transform .16s ease,box-shadow .16s ease;}'
+    + '#' + PILL_ID + ':hover{transform:translateY(-1px);}'
+    + '#' + PILL_ID + ':active{transform:translateY(1px);}'
+    + '#' + PILL_ID + ' .jwd-hi{display:flex;align-items:center;justify-content:center;width:24px;height:24px;flex:0 0 24px;'
+    + 'border-radius:50%;background:rgba(212,175,55,.16);color:#a8842a;font-size:15px;font-weight:800;line-height:1;}';
   var st = document.createElement('style');
   st.textContent = css;
   document.head.appendChild(st);
