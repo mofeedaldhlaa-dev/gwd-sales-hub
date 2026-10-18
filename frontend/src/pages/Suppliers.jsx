@@ -6,12 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { fmt } from "@/lib/utils";
-import { Plus, Edit } from "lucide-react";
+import { Plus, Edit, Trash2 } from "lucide-react";
 
 function SupplierForm({ initial, onSaved, onClose }) {
-  const [f, setF] = useState(initial || { name: "", phone: "", credit_limit: 0, opening_balance: 0, address: "", notes: "", status: "active" });
+  const [accountTypes, setAccountTypes] = useState([]);
+  useEffect(() => { api.get("/account-types").then((r) => setAccountTypes(Array.isArray(r.data) ? r.data : [])).catch(() => {}); }, []);
+  const [f, setF] = useState(initial || { name: "", phone: "", credit_limit: 0, opening_balance: 0, address: "", notes: "", status: "active", account_type: "" });
   const [loading, setLoading] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
@@ -29,6 +32,7 @@ function SupplierForm({ initial, onSaved, onClose }) {
     <form onSubmit={submit} className="space-y-3">
       <div><Label>اسم المورد *</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required data-testid="sup-name" /></div>
       <div><Label>الهاتف</Label><Input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} data-testid="sup-phone" /></div>
+      <div><Label>نوع الحساب</Label><Select value={f.account_type || "supplier"} onValueChange={(v) => setF({ ...f, account_type: v === "supplier" ? "" : v })}><SelectTrigger data-testid="sup-type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="supplier">مورد</SelectItem>{accountTypes.filter((t) => t.base_type === "supplier").map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><Label>سقف الحساب</Label><Input type="number" value={f.credit_limit} onChange={(e) => setF({ ...f, credit_limit: e.target.value })} /></div>
         <div><Label>الرصيد الافتتاحي</Label><Input type="number" value={f.opening_balance} onChange={(e) => setF({ ...f, opening_balance: e.target.value })} /></div>
@@ -46,6 +50,15 @@ export default function Suppliers() {
   const [edit, setEdit] = useState(null);
   const load = async () => { const r = await api.get("/suppliers"); setItems(r.data); };
   useEffect(() => { load(); }, []);
+
+  const removeSupplier = async (s) => {
+    if (!window.confirm("هل أنت متأكد من حذف هذا العنصر؟ لا يمكن التراجع عن عملية الحذف.")) return;
+    try {
+      await api.delete(`/suppliers/${s.id}`);
+      toast.success(`تم حذف المورد: ${s.name}`);
+      load();
+    } catch (e) { toast.error(errText(e)); }
+  };
   return (
     <div className="space-y-4" data-testid="suppliers-page">
       <div className="flex justify-end">
@@ -64,7 +77,10 @@ export default function Suppliers() {
               <tr key={s.id} className="border-t border-slate-100">
                 <td className="p-3 font-medium">{s.name}</td><td className="p-3">{s.phone}</td>
                 <td className="p-3 num">{fmt(s.credit_limit)}</td><td className="p-3 num">{fmt(s.balance)}</td>
-                <td className="p-3"><Button size="sm" variant="outline" onClick={() => { setEdit(s); setOpen(true); }}><Edit size={14}/></Button></td>
+                <td className="p-3 flex gap-1">
+                  <Button size="sm" variant="outline" onClick={() => { setEdit(s); setOpen(true); }} data-testid={`sup-edit-${s.id}`}><Edit size={14}/></Button>
+                  <Button size="sm" variant="outline" onClick={() => removeSupplier(s)} data-testid={`sup-delete-${s.id}`} className="border-red-300" title="حذف"><Trash2 size={14} className="text-red-600"/></Button>
+                </td>
               </tr>
             ))}
             {items.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-slate-400">لا يوجد موردين</td></tr>}
@@ -79,7 +95,10 @@ export default function Suppliers() {
                 <div className="font-bold truncate">{s.name}</div>
                 <div className="text-xs text-slate-500 truncate">{s.phone}</div>
               </div>
-              <Button size="sm" variant="outline" onClick={() => { setEdit(s); setOpen(true); }} className="shrink-0"><Edit size={14}/></Button>
+              <div className="flex gap-1 shrink-0">
+                <Button size="sm" variant="outline" onClick={() => { setEdit(s); setOpen(true); }}><Edit size={14}/></Button>
+                <Button size="sm" variant="outline" onClick={() => removeSupplier(s)} data-testid={`sup-delete-m-${s.id}`} className="border-red-300"><Trash2 size={14} className="text-red-600"/></Button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
               <div><div className="text-slate-500">السقف</div><div className="num font-bold">{fmt(s.credit_limit)}</div></div>

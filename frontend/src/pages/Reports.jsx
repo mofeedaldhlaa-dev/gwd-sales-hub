@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import api, { errText } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,61 +9,212 @@ import { Printer } from "lucide-react";
 import { toast } from "sonner";
 import { printReport } from "@/lib/print";
 import { useAuth } from "@/lib/auth";
+import PeriodFilter, { PERIOD_LABELS, validatePeriodRange } from "@/components/PeriodFilter";
 
+import { monthStartIso, todayIso } from "@/lib/DateService";
 const TAB_TITLES = {
-  sales: "تقرير المبيعات", purchases: "تقرير المشتريات",
+  sales: "تقرير المبيعات", purchases: "تقرير المشتريات", sales_by_customer: "تقرير المبيعات حسب العميل",
   electronic: "تقرير المبيعات الإلكترونية", card_order_log: "سجل طلبات الرابط",
   customer_debts: "تقرير مديونية العملاء", supplier_debts: "تقرير مديونية الموردين",
-  stock: "تقرير المخزون",
+  stock: "تقرير المخزون", opening: "تقرير الأرصدة الافتتاحية", movement: "تقرير حركة صنف بالمخزون",
+  incentives: "تقرير الحوافز",
 };
+
+
+// Tabs that use the unified period filter.
+const DATE_TABS = ["sales", "purchases", "sales_by_customer", "electronic", "card_order_log", "stock"];
+// Tabs whose backend query accepts start/end (re-fetch on period change).
+const SERVER_DATE_TABS = ["sales", "purchases", "sales_by_customer", "stock"];
 
 export default function Reports() {
   const { user } = useAuth();
   const [tab, setTab] = useState("sales");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [data, setData] = useState([]);
-  const [q, setQ] = useState("");
 
-  const load = async () => {
+  // Unified period model (shared by all date-based tabs).
+  const [period, setPeriod] = useState("day");
+  const [start, setStart] = useState(todayIso());
+  const [end, setEnd] = useState(todayIso());
+
+  const [data, setData] = useState([]);
+  const [customerSales, setCustomerSales] = useState({ items: [], summary: [], total: 0, count: 0 });
+  const [q, setQ] = useState("");
+  const [olStatus, setOlStatus] = useState("all");
+
+  // item movement
+  const [categories, setCategories] = useState([]);
+  const [mvCategory, setMvCategory] = useState("");
+  const [mvPeriod, setMvPeriod] = useState("month");
+  const [mvStart, setMvStart] = useState(monthStartIso());
+  const [mvEnd, setMvEnd] = useState(todayIso());
+  const [mvData, setMvData] = useState(null);
+
+  // incentives report
+  const [incPeriod, setIncPeriod] = useState("month");
+  const [incStart, setIncStart] = useState(monthStartIso());
+  const [incEnd, setIncEnd] = useState(todayIso());
+  const [incData, setIncData] = useState({ items: [], count: 0, total_qty: 0, total_value: 0, kind: "redeemed" });
+  const [incKind, setIncKind] = useState("redeemed");
+
+  useEffect(() => { api.get("/categories").then((r) => setCategories(r.data)).catch(() => {}); }, []);
+
+  const load = async (ov) => {
     const endpoints = {
-      sales: "/reports/sales", purchases: "/reports/purchases",
+      sales: "/reports/sales", purchases: "/reports/purchases", sales_by_customer: "/reports/sales-by-customer",
       customer_debts: "/reports/customer-debts", supplier_debts: "/reports/supplier-debts",
       stock: "/stock", electronic: "/reports/electronic-sales",
       card_order_log: "/reports/card-order-log",
+      opening: "/reports/opening-balances",
     };
-    const params = ["sales","purchases"].includes(tab) && start && end ? { start, end } : {};
+    if (tab === "movement" || tab === "incentives") return;
+    if (!endpoints[tab]) return;
+    const s = ov?.start ?? start; const e = ov?.end ?? end;
+    let params = {};
+    if (["sales", "purchases", "sales_by_customer"].includes(tab) && s && e) params = { start: s, end: e };
+    if (tab === "stock" && (s || e)) params = { start: s || undefined, end: e || undefined };
     try {
       const r = await api.get(endpoints[tab], { params });
-      setData(r.data);
-    } catch (e) { toast.error(errText(e)); setData([]); }
+      if (tab === "sales_by_customer") setCustomerSales(r.data || { items: [], summary: [], total: 0, count: 0 });
+      else setData(r.data);
+    } catch (e2) { toast.error(errText(e2)); setData([]); }
   };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [tab]);
 
-  const filtered = data.filter((x) => !q || JSON.stringify(x).toLowerCase().includes(q.toLowerCase()));
+  // Reset the period to "all" when switching tabs, then load.
+  useEffect(() => {
+    setPeriod("day"); const today = todayIso(); setStart(today); setEnd(today); setQ("");
+    // load with the daily range
+    load({ start: today, end: today });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const onPeriodChange = ({ period: p, start: s, end: e }) => {
+    setPeriod(p); setStart(s); setEnd(e);
+    if (SERVER_DATE_TABS.includes(tab)) load({ start: s, end: e });
+  };
+
+  const loadMovement = async () => {
+    const periodError = validatePeriodRange({ period: mvPeriod, start: mvStart, end: mvEnd });
+    if (periodError) { toast.error(periodError); return; }
+    if (!mvCategory) { toast.error("اختر الفئة"); return; }
+    try {
+      const r = await api.get("/reports/item-movement", { params: { category_id: mvCategory, start: mvStart, end: mvEnd } });
+      setMvData(r.data);
+    } catch (e) { toast.error(errText(e)); setMvData(null); }
+  };
+
+  const applyIncentivePeriod = ({ period: p, start: s, end: e }) => {
+    setIncPeriod(p); setIncStart(s || ""); setIncEnd(e || "");
+  };
+  const onMovementPeriodChange = ({ period: p, start: s, end: e }) => {
+    setMvPeriod(p); setMvStart(s); setMvEnd(e);
+  };
+
+  const loadIncentives = async () => {
+    const periodError = incKind === "redeemed" ? validatePeriodRange({ period: incPeriod, start: incStart, end: incEnd }) : null;
+    if (periodError) { toast.error(periodError); return; }
+    try {
+      const params = incKind === "pending" ? { kind: "pending" } : { start: incStart, end: incEnd, kind: "redeemed" };
+      const r = await api.get("/reports/incentives", { params });
+      setIncData(r.data);
+    } catch (e) { toast.error(errText(e)); setIncData({ items: [], count: 0, total_qty: 0, total_value: 0, kind: incKind }); }
+  };
+  useEffect(() => { if (tab === "incentives") loadIncentives(); /* eslint-disable-next-line */ }, [tab, incKind]);
+
+  // Client-side date filter for tabs whose data is fetched in full (electronic, order log).
+  const inRange = (ca) => {
+    const day = (ca || "").slice(0, 10);
+    if (start && day < start) return false;
+    if (end && day > end) return false;
+    return true;
+  };
+
+  const orderLogFiltered = useMemo(() => {
+    if (tab !== "card_order_log") return [];
+    return data.filter((a) => {
+      if (!inRange(a.created_at)) return false;
+      if (olStatus !== "all" && a.status !== olStatus) return false;
+      if (q && !JSON.stringify(a).toLowerCase().includes(q.toLowerCase())) return false;
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, olStatus, q, tab, start, end]);
+
+  const orderLogSummary = useMemo(() => {
+    const total = orderLogFiltered.length;
+    const success = orderLogFiltered.filter((a) => a.status === "success").length;
+    const rejected = total - success;
+    const value = orderLogFiltered.reduce((s, a) => s + (a.total || 0), 0);
+    return { total, success, rejected, value };
+  }, [orderLogFiltered]);
+
+  const filtered = useMemo(() => {
+    if (tab === "card_order_log") return orderLogFiltered;
+    if (tab === "sales_by_customer") {
+      const term = q.toLowerCase();
+      return (customerSales.items || []).filter((x) => !term || `${x.customer_name || ""} ${x.customer_phone || ""} ${x.number || ""}`.toLowerCase().includes(term));
+    }
+    let base = data;
+    if (tab === "electronic") base = data.filter((a) => inRange(a.created_at));
+    return base.filter((x) => !q || JSON.stringify(x).toLowerCase().includes(q.toLowerCase()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, q, tab, orderLogFiltered, start, end, customerSales.items]);
+
+  const customerSalesSummary = useMemo(() => {
+    const groups = {};
+    filtered.forEach((sale) => {
+      const key = sale.customer_id || "cash";
+      if (!groups[key]) groups[key] = { customer_name: sale.customer_name || "نقدي", customer_phone: sale.customer_phone || "", sales_count: 0, total: 0 };
+      groups[key].sales_count += 1;
+      groups[key].total += Number(sale.total || 0);
+    });
+    return Object.values(groups).sort((a, b) => b.total - a.total);
+  }, [filtered]);
+
+  const periodActive = !!(start || end);
   const username = user?.name || user?.username;
+  const periodLabelTxt = () => {
+    const base = PERIOD_LABELS[period] || "الكل";
+    return periodActive ? `${base} (${start || "…"} → ${end || "…"})` : base;
+  };
 
   const printCurrent = () => {
+    const activeRange = tab === "movement" ? { period: mvPeriod, start: mvStart, end: mvEnd } : tab === "incentives" && incKind === "redeemed" ? { period: incPeriod, start: incStart, end: incEnd } : { period, start, end };
+    const periodError = validatePeriodRange(activeRange);
+    if (periodError) { toast.error(periodError); return; }
     const title = TAB_TITLES[tab] || "تقرير";
+    const periodSuffix = DATE_TABS.includes(tab) ? ` — الفترة: ${periodLabelTxt()}` : "";
     if (tab === "sales" || tab === "purchases") {
       const total = filtered.reduce((s, x) => s + (x.total || 0), 0);
       printReport({
-        title, headers: ["الرقم","التاريخ",tab==="sales"?"العميل":"المورد","الإجمالي","المدفوع","المتبقي"],
+        title: title + periodSuffix, headers: ["الرقم","التاريخ",tab==="sales"?"العميل":"المورد","الإجمالي","المدفوع","المتبقي"],
         rows: filtered.map((s) => [s.number, fmtDate(s.created_at), s.customer_name || s.supplier_name || "-", fmt(s.total), fmt(s.paid), fmt(s.remaining)]),
-        totals: [{ label: "الإجمالي", value: fmt(total) }], username,
+        totals: [{ label: "عدد النتائج", value: filtered.length }, { label: "الإجمالي", value: fmt(total) }], username,
+      });
+    } else if (tab === "sales_by_customer") {
+      printReport({
+        title: title + periodSuffix,
+        headers: ["العميل", "الهاتف", "عدد الفواتير", "الإجمالي"],
+        rows: customerSalesSummary.map((c) => [c.customer_name, c.customer_phone || "-", c.sales_count, fmt(c.total)]),
+        totals: [{ label: "عدد العملاء", value: customerSalesSummary.length }, { label: "إجمالي المبيعات", value: fmt(customerSalesSummary.reduce((sum, c) => sum + c.total, 0)) }], username,
       });
     } else if (tab === "electronic") {
       const total = filtered.reduce((s, x) => s + (x.total || 0), 0);
       printReport({
-        title, headers: ["الرقم","التاريخ","العميل","الفئة","الكمية","الإجمالي","الكروت"],
+        title: title + periodSuffix, headers: ["الرقم","التاريخ","العميل","الفئة","الكمية","الإجمالي","الكروت"],
         rows: filtered.map((s) => { const it = s.items?.[0] || {}; return [s.number, fmtDate(s.created_at), s.customer_name, it.category_name, it.quantity, fmt(s.total), (it.card_numbers||[]).join(", ")]; }),
-        totals: [{ label: "الإجمالي", value: fmt(total) }], username,
+        totals: [{ label: "عدد النتائج", value: filtered.length }, { label: "الإجمالي", value: fmt(total) }], username,
       });
     } else if (tab === "card_order_log") {
+      const labelS = { all: "الكل", success: "ناجح", rejected_over_limit: "الفاشلة - تجاوز السقف", rejected_no_stock: "الفاشلة - عدم توفر", rejected_not_found: "الفاشلة - دخول مرفوض" }[olStatus] || "الكل";
       printReport({
-        title, headers: ["التاريخ","العميل","الهاتف","الفئة","الكمية","القيمة","الحالة","السبب"],
-        rows: filtered.map((a) => [fmtDate(a.created_at), a.customer_name || "-", a.phone, a.category_name || "-", a.quantity || 0, fmt(a.total || 0), a.status==="success"?"ناجح":a.status==="rejected_over_limit"?"مرفوض - تجاوز السقف":a.status==="rejected_no_stock"?"مرفوض - عدم توفر":"مرفوض - غير موجود", a.reason || "-"]),
+        title: `${title}${periodSuffix} — الحالة: ${labelS}`,
+        headers: ["التاريخ","العميل","الهاتف","الفئة","الكمية","القيمة","الحالة","السبب"],
+        rows: filtered.map((a) => [fmtDate(a.created_at), a.customer_name || "-", a.phone, a.category_name || "-", a.quantity || 0, fmt(a.total || 0), a.status==="success"?"ناجح":a.status==="rejected_over_limit"?"الفاشلة - تجاوز السقف":a.status==="rejected_no_stock"?"الفاشلة - عدم توفر":a.status==="rejected_not_found"?"الفاشلة - دخول مرفوض":"الفاشلة", a.reason || "-"]),
+        totals: [
+          { label: "عدد الطلبات", value: orderLogSummary.total },
+          { label: "الناجحة", value: orderLogSummary.success },
+          { label: "المرفوضة", value: orderLogSummary.rejected },
+          { label: "القيمة الإجمالية للناجحة", value: fmt(orderLogSummary.value) },
+        ],
         username,
       });
     } else if (tab === "customer_debts" || tab === "supplier_debts") {
@@ -72,12 +223,55 @@ export default function Reports() {
       printReport({
         title, headers: [label, "الهاتف", "السقف", "المديونية", "المتاح"],
         rows: filtered.map((c) => [c.name, c.phone, fmt(c.credit_limit), fmt(c.balance), fmt(Math.max(0,(c.credit_limit||0)-(c.balance||0)))]),
-        totals: [{ label: "إجمالي المديونية", value: fmt(total) }], username,
+        totals: [{ label: "عدد النتائج", value: filtered.length }, { label: "إجمالي المديونية", value: fmt(total) }], username,
       });
     } else if (tab === "stock") {
+      const headers = periodActive
+        ? ["الفئة","أُضيف بالفترة","بيع بالفترة","مرقم متاح","كمية متاح","المتاح الكلي"]
+        : ["الفئة","مرقم إجمالي","مرقم متاح","مرقم مباع","كمية إجمالي","كمية متاح","المتاح الكلي"];
+      const rows = periodActive
+        ? filtered.map((s) => [s.category_name, s.period?.added || 0, s.period?.sold || 0, s.numbered?.available || 0, s.quantity?.available || 0, s.available_total || 0])
+        : filtered.map((s) => [s.category_name, s.numbered?.total || 0, s.numbered?.available || 0, s.numbered?.sold || 0, s.quantity?.total || 0, s.quantity?.available || 0, s.available_total || 0]);
+      printReport({ title: title + periodSuffix, headers, rows, username });
+    } else if (tab === "opening") {
+      const total = filtered.reduce((s, x) => s + (x.opening_balance || 0), 0);
       printReport({
-        title, headers: ["الفئة","مرقم إجمالي","مرقم متاح","مرقم مباع","كمية إجمالي","كمية متاح","المتاح الكلي"],
-        rows: filtered.map((s) => [s.category_name, s.numbered?.total || 0, s.numbered?.available || 0, s.numbered?.sold || 0, s.quantity?.total || 0, s.quantity?.available || 0, s.available_total || 0]),
+        title, headers: ["النوع", "الاسم", "الهاتف", "الرصيد الافتتاحي", "الرصيد الحالي"],
+        rows: filtered.map((c) => [c.type==="supplier"?"مورد":c.type==="pos"?"نقطة بيع":"عميل", c.name, c.phone || "-", fmt(c.opening_balance), fmt(c.current_balance)]),
+        totals: [{ label: "عدد النتائج", value: filtered.length }, { label: "إجمالي الأرصدة الافتتاحية", value: fmt(total) }], username,
+      });
+    } else if (tab === "movement" && mvData) {
+      printReport({
+        title: `${title} — ${mvData.category?.name} — من ${mvStart} إلى ${mvEnd}`,
+        headers: ["التاريخ", "الرقم", "البيان", "وارد", "صادر", "الرصيد"],
+        rows: mvData.entries.map((e) => [fmtDate(e.created_at), e.number || "-", e.description, e.in || "-", e.out || "-", e.balance]),
+        totals: [
+          { label: "الرصيد قبل الفترة", value: mvData.balance_before },
+          { label: "إجمالي الوارد", value: mvData.total_in },
+          { label: "إجمالي الصادر", value: mvData.total_out },
+          { label: "الرصيد بعد الفترة", value: mvData.balance_after },
+        ],
+        username,
+      });
+    } else if (tab === "incentives") {
+      printReport({
+        title: `${title} — من ${incStart} إلى ${incEnd}`,
+        headers: ["التاريخ", "العميل", "النوع", "الفئة", "الكمية", "طريقة الاستفادة", "المبلغ", "المستخدم"],
+        rows: incData.items.map((r) => [
+          fmtDate(r.redeemed_at || r.created_at),
+          r.customer_name || "-",
+          r.customer_type === "pos" ? "نقطة بيع" : "عميل",
+          r.category_name || "-",
+          r.qty,
+          r.status === "redeemed_credit" ? "تقييد المبلغ في الحساب" : "استلام كرت",
+          fmt(r.redeemed_value || (r.unit_value || 0) * (r.qty || 0)),
+          r.redeemed_by || "-",
+        ]),
+        totals: [
+          { label: "عدد العمليات", value: incData.count },
+          { label: "إجمالي الكمية", value: incData.total_qty },
+          { label: "إجمالي القيمة", value: fmt(incData.total_value) },
+        ],
         username,
       });
     }
@@ -86,39 +280,159 @@ export default function Reports() {
   return (
     <div className="space-y-4" data-testid="reports-page">
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="sales" data-testid="rep-sales">المبيعات</TabsTrigger>
-          <TabsTrigger value="purchases" data-testid="rep-purchases">المشتريات</TabsTrigger>
+          <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="sales" data-testid="rep-sales">المبيعات</TabsTrigger>
+            <TabsTrigger value="purchases" data-testid="rep-purchases">المشتريات</TabsTrigger>
+            <TabsTrigger value="sales_by_customer" data-testid="rep-sales-by-customer">مبيعات حسب العميل</TabsTrigger>
           <TabsTrigger value="electronic" data-testid="rep-electronic">المبيعات الإلكترونية</TabsTrigger>
           <TabsTrigger value="card_order_log" data-testid="rep-order-log">سجل طلبات الرابط</TabsTrigger>
           <TabsTrigger value="customer_debts" data-testid="rep-cdebts">مديونية العملاء</TabsTrigger>
           <TabsTrigger value="supplier_debts" data-testid="rep-sdebts">مديونية الموردين</TabsTrigger>
           <TabsTrigger value="stock" data-testid="rep-stock">المخزون</TabsTrigger>
+          <TabsTrigger value="opening" data-testid="rep-opening">الأرصدة الافتتاحية</TabsTrigger>
+          <TabsTrigger value="movement" data-testid="rep-movement">حركة صنف</TabsTrigger>
+          <TabsTrigger value="incentives" data-testid="rep-incentives">الحوافز</TabsTrigger>
         </TabsList>
 
-        <Card className="p-3 flex flex-col sm:flex-row gap-2 sm:items-end flex-wrap mt-3 no-print">
-          {["sales", "purchases"].includes(tab) && (
-            <>
-              <div className="w-full sm:w-auto"><label className="text-xs">من</label><Input type="date" value={start} onChange={(e) => setStart(e.target.value)}/></div>
-              <div className="w-full sm:w-auto"><label className="text-xs">إلى</label><Input type="date" value={end} onChange={(e) => setEnd(e.target.value)}/></div>
-              <Button onClick={load} className="bg-[#221340] w-full sm:w-auto">تصفية</Button>
-            </>
+        <Card className="p-3 flex flex-col gap-3 mt-3 no-print">
+          {/* Unified period filter for all date-based reports */}
+          {DATE_TABS.includes(tab) && (
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">الفترة الزمنية</label>
+              <PeriodFilter period={period} start={start} end={end} onChange={onPeriodChange} testidPrefix="rep-period" />
+            </div>
           )}
-          <Input placeholder="بحث..." value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs"/>
-          <Button onClick={printCurrent} variant="outline" data-testid="print-report" className="w-full sm:w-auto"><Printer size={14} className="ml-1"/> طباعة / PDF</Button>
+
+          {tab === "card_order_log" && (
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">الحالة</label>
+              <div className="flex flex-wrap gap-1">
+                {[["all","الكل"],["success","ناجح"],["rejected_over_limit","الفاشلة - تجاوز السقف"],["rejected_no_stock","الفاشلة - لا يوجد مخزون"],["rejected_not_found","الفاشلة - دخول مرفوض"]].map(([k,l]) => (
+                  <button key={k} onClick={() => setOlStatus(k)} className={`px-2 py-1 rounded-full text-xs border ${olStatus===k?"bg-[#221340] text-white border-[#221340]":"border-slate-300"}`} data-testid={`ol-status-${k}`}>{l}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab === "movement" && (
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-end flex-wrap">
+              <div className="w-full sm:w-64">
+                <label className="text-xs">الفئة</label>
+                <select value={mvCategory} onChange={(e) => setMvCategory(e.target.value)} className="w-full border rounded p-2 text-sm" data-testid="mv-category">
+                  <option value="">اختر</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="w-full">
+                <label className="text-xs text-slate-500 block mb-1">الفترة الزمنية</label>
+                <PeriodFilter period={mvPeriod} start={mvStart} end={mvEnd} onChange={onMovementPeriodChange} testidPrefix="mv-period" />
+              </div>
+              <Button onClick={loadMovement} className="bg-[#221340] w-full sm:w-auto" data-testid="mv-load">عرض الحركة</Button>
+            </div>
+          )}
+
+          {tab === "incentives" && (
+            <div className="flex flex-col gap-2">
+              <div>
+                <label className="text-xs">النوع</label>
+                <div className="flex gap-1 mt-1">
+                  <button onClick={() => setIncKind("redeemed")} className={`px-3 py-1 rounded-full text-xs border ${incKind==="redeemed"?"bg-[#452480] text-white border-[#452480]":"border-slate-300"}`} data-testid="inc-kind-redeemed">الحوافز المصروفة</button>
+                  <button onClick={() => setIncKind("pending")} className={`px-3 py-1 rounded-full text-xs border ${incKind==="pending"?"bg-amber-500 text-white border-amber-500":"border-slate-300"}`} data-testid="inc-kind-pending">الحوافز غير المصروفة</button>
+                </div>
+              </div>
+              {incKind === "redeemed" && (
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">الفترة الزمنية</label>
+                  <PeriodFilter period={incPeriod} start={incStart} end={incEnd} onChange={applyIncentivePeriod} testidPrefix="inc-period" />
+                </div>
+              )}
+              <Button onClick={loadIncentives} className="bg-[#221340] w-full sm:w-auto" data-testid="inc-load">عرض</Button>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center flex-wrap">
+            {tab !== "movement" && <Input placeholder="بحث..." value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs"/>}
+            <Button onClick={printCurrent} variant="outline" data-testid="print-report" className="w-full sm:w-auto"><Printer size={14} className="ml-1"/> طباعة / PDF</Button>
+          </div>
         </Card>
+
+        {tab === "card_order_log" && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 no-print mt-3" data-testid="ol-summary">
+            <Card className="p-3"><div className="text-xs text-slate-500">إجمالي الطلبات</div><div className="text-xl font-bold">{orderLogSummary.total}</div></Card>
+            <Card className="p-3"><div className="text-xs text-slate-500">ناجحة</div><div className="text-xl font-bold text-green-700">{orderLogSummary.success}</div></Card>
+            <Card className="p-3"><div className="text-xs text-slate-500">مرفوضة</div><div className="text-xl font-bold text-red-700">{orderLogSummary.rejected}</div></Card>
+            <Card className="p-3"><div className="text-xs text-slate-500">القيمة الناجحة</div><div className="text-xl font-bold num">{fmt(orderLogSummary.value)}</div></Card>
+          </div>
+        )}
 
         <TabsContent value="sales"><ReportTable data={filtered} kind="sales"/></TabsContent>
         <TabsContent value="purchases"><ReportTable data={filtered} kind="purchases"/></TabsContent>
+        <TabsContent value="sales_by_customer"><CustomerSalesTable summary={customerSalesSummary} items={filtered}/></TabsContent>
         <TabsContent value="electronic"><ElectronicTable data={filtered}/></TabsContent>
         <TabsContent value="card_order_log"><OrderLogTable data={filtered}/></TabsContent>
         <TabsContent value="customer_debts"><DebtTable data={filtered} label="العميل"/></TabsContent>
         <TabsContent value="supplier_debts"><DebtTable data={filtered} label="المورد"/></TabsContent>
-        <TabsContent value="stock"><StockTable data={filtered}/></TabsContent>
+        <TabsContent value="stock"><StockTable data={filtered} showPeriod={periodActive}/></TabsContent>
+        <TabsContent value="opening"><OpeningTable data={filtered}/></TabsContent>
+        <TabsContent value="movement"><MovementTable data={mvData}/></TabsContent>
+        <TabsContent value="incentives"><IncentivesTable data={incData} query={q}/></TabsContent>
       </Tabs>
     </div>
   );
 }
+
+const IncentivesTable = ({ data, query }) => {
+  const kind = data?.kind || "redeemed";
+  const items = (data?.items || []).filter((r) => !query || JSON.stringify(r).toLowerCase().includes(query.toLowerCase()));
+  return (
+    <Card className="mt-3 overflow-x-auto" data-testid="inc-table">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50">
+          {kind === "pending" ? (
+            <tr className="text-right"><th className="p-2">العميل</th><th className="p-2">النوع</th><th className="p-2">الفئة</th><th className="p-2">المشتراة</th><th className="p-2">القاعدة</th><th className="p-2">المستحق</th><th className="p-2">القيمة</th><th className="p-2">الحالة</th></tr>
+          ) : (
+            <tr className="text-right"><th className="p-2">التاريخ</th><th className="p-2">العميل</th><th className="p-2">النوع</th><th className="p-2">الفئة</th><th className="p-2">الكمية</th><th className="p-2">طريقة الاستفادة</th><th className="p-2">المبلغ</th><th className="p-2">المستخدم</th></tr>
+          )}
+        </thead>
+        <tbody>
+          {items.map((r) => kind === "pending" ? (
+            <tr key={r.id} className="border-t bg-amber-50/40">
+              <td className="p-2">{r.customer_name || "-"}</td>
+              <td className="p-2">{r.customer_type === "pos" ? "نقطة بيع" : "عميل"}</td>
+              <td className="p-2">{r.category_name || "-"}</td>
+              <td className="p-2 num">{r.bought}</td>
+              <td className="p-2 text-xs">{r.buy_qty}/{r.reward_qty}</td>
+              <td className="p-2 num font-bold text-amber-700">{r.qty}</td>
+              <td className="p-2 num">{fmt(r.redeemed_value || 0)}</td>
+              <td className="p-2 text-xs text-slate-600">{r.status_text || "مستحق"}</td>
+            </tr>
+          ) : (
+            <tr key={r.id} className="border-t">
+              <td className="p-2">{fmtDate(r.redeemed_at || r.created_at)}</td>
+              <td className="p-2">{r.customer_name || "-"}</td>
+              <td className="p-2">{r.customer_type === "pos" ? "نقطة بيع" : "عميل"}</td>
+              <td className="p-2">{r.category_name || "-"}</td>
+              <td className="p-2 num">{r.qty}</td>
+              <td className="p-2 text-xs">{r.status === "redeemed_credit" ? "تقييد في الحساب" : "استلام كرت"}</td>
+              <td className="p-2 num">{fmt(r.redeemed_value || (r.unit_value || 0) * (r.qty || 0))}</td>
+              <td className="p-2 text-xs">{r.redeemed_by || "-"}</td>
+            </tr>
+          ))}
+          {items.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-slate-400">{kind === "pending" ? "لا توجد حوافز غير مصروفة" : "لا توجد حوافز مصروفة في الفترة المحددة"}</td></tr>}
+        </tbody>
+        <tfoot>
+          <tr className="bg-slate-100 font-bold">
+            <td colSpan={kind === "pending" ? 5 : 4} className="p-2">الإجمالي: {items.length} {kind === "pending" ? "سطر" : "عملية"}</td>
+            <td className="p-2 num">{(data?.total_qty) || 0}</td>
+            {kind === "pending" ? null : <td></td>}
+            <td className="p-2 num">{fmt(data?.total_value || 0)}</td>
+            {kind === "pending" ? null : <td></td>}
+          </tr>
+        </tfoot>
+      </table>
+    </Card>
+  );
+};
 
 const ReportTable = ({ data, kind }) => {
   const total = data.reduce((s, x) => s + (x.total || 0), 0);
@@ -130,7 +444,7 @@ const ReportTable = ({ data, kind }) => {
           {data.map((s) => <tr key={s.id} className="border-t"><td className="p-2 font-mono">{s.number}</td><td className="p-2">{fmtDate(s.created_at)}</td><td className="p-2">{s.customer_name || s.supplier_name}</td><td className="p-2 num">{fmt(s.total)}</td><td className="p-2 num">{fmt(s.paid)}</td><td className="p-2 num">{fmt(s.remaining)}</td></tr>)}
           {data.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-slate-400">لا توجد بيانات لعرضها</td></tr>}
         </tbody>
-        <tfoot><tr className="bg-slate-100 font-bold"><td colSpan={3} className="p-2">الإجمالي</td><td className="p-2 num">{fmt(total)}</td><td colSpan={2}></td></tr></tfoot>
+        <tfoot><tr className="bg-slate-100 font-bold"><td colSpan={2} className="p-2">عدد النتائج: {data.length}</td><td className="p-2">الإجمالي</td><td className="p-2 num">{fmt(total)}</td><td colSpan={2}></td></tr></tfoot>
       </table>
     </Card>
   );
@@ -145,7 +459,7 @@ const ElectronicTable = ({ data }) => {
           {data.map((s) => { const it = s.items?.[0] || {}; return <tr key={s.id} className="border-t"><td className="p-2 font-mono">{s.number}</td><td className="p-2">{fmtDate(s.created_at)}</td><td className="p-2">{s.customer_name}</td><td className="p-2">{it.category_name}</td><td className="p-2 num">{it.quantity}</td><td className="p-2 num">{fmt(s.total)}</td><td className="p-2 text-xs font-mono">{(it.card_numbers||[]).join(", ")}</td></tr>; })}
           {data.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-slate-400">لا توجد بيانات لعرضها</td></tr>}
         </tbody>
-        <tfoot><tr className="bg-slate-100 font-bold"><td colSpan={5} className="p-2">الإجمالي</td><td className="p-2 num">{fmt(total)}</td><td></td></tr></tfoot>
+        <tfoot><tr className="bg-slate-100 font-bold"><td colSpan={4} className="p-2">عدد النتائج: {data.length}</td><td className="p-2">الإجمالي</td><td className="p-2 num">{fmt(total)}</td><td></td></tr></tfoot>
       </table>
     </Card>
   );
@@ -158,7 +472,7 @@ const OrderLogTable = ({ data }) => (
         {data.map((a) => (
           <tr key={a.id} className="border-t">
             <td className="p-2">{fmtDate(a.created_at)}</td><td className="p-2">{a.customer_name || "-"}</td><td className="p-2">{a.phone}</td><td className="p-2">{a.category_name || "-"}</td><td className="p-2 num">{a.quantity || 0}</td><td className="p-2 num">{fmt(a.total || 0)}</td>
-            <td className="p-2"><span className={`text-xs px-2 py-0.5 rounded-full ${a.status==='success'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{a.status==='success'?'ناجح':a.status==='rejected_over_limit'?'مرفوض - تجاوز السقف':a.status==='rejected_no_stock'?'مرفوض - عدم توفر':'مرفوض - غير موجود'}</span></td>
+            <td className="p-2"><span className={`text-xs px-2 py-0.5 rounded-full ${a.status==='success'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{a.status==='success'?'ناجح':a.status==='rejected_over_limit'?'الفاشلة - تجاوز السقف':a.status==='rejected_no_stock'?'الفاشلة - عدم توفر':a.status==='rejected_not_found'?'دخول فاشل - المستخدم غير موجود':a.status==='login_failed'?'دخول فاشل - كلمة المرور خاطئة':a.status==='login_disabled'?'دخول مرفوض - الحساب معطل':a.status==='login_device'?'دخول مرفوض - هاتف غير مرتبط':'الفاشلة'}</span></td>
             <td className="p-2 text-xs">{a.reason}</td>
           </tr>
         ))}
@@ -176,13 +490,26 @@ const DebtTable = ({ data, label }) => {
         <tbody>{data.map((c) => <tr key={c.id} className="border-t"><td className="p-2">{c.name}</td><td className="p-2">{c.phone}</td><td className="p-2 num">{fmt(c.credit_limit)}</td><td className="p-2 num font-bold">{fmt(c.balance)}</td><td className="p-2 num text-green-600">{fmt(Math.max(0, (c.credit_limit||0) - (c.balance||0)))}</td></tr>)}
           {data.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-slate-400">لا توجد بيانات لعرضها</td></tr>}
         </tbody>
-        <tfoot><tr className="bg-slate-100 font-bold"><td colSpan={3} className="p-2">إجمالي المديونية</td><td className="p-2 num">{fmt(total)}</td><td></td></tr></tfoot>
+        <tfoot><tr className="bg-slate-100 font-bold"><td colSpan={2} className="p-2">عدد النتائج: {data.length}</td><td className="p-2">إجمالي المديونية</td><td className="p-2 num">{fmt(total)}</td><td></td></tr></tfoot>
       </table>
     </Card>
   );
 };
-const StockTable = ({ data }) => {
+const StockTable = ({ data, showPeriod }) => {
   if (!data || data.length === 0) return <Card className="mt-3 p-6 text-center text-slate-400">لا توجد بيانات لعرضها</Card>;
+  if (showPeriod) {
+    const totAdded = data.reduce((s, x) => s + (x.period?.added || 0), 0);
+    const totSold = data.reduce((s, x) => s + (x.period?.sold || 0), 0);
+    return (
+      <Card className="mt-3 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50"><tr className="text-right"><th className="p-2">الفئة</th><th className="p-2">أُضيف بالفترة</th><th className="p-2">بيع بالفترة</th><th className="p-2">مرقم متاح</th><th className="p-2">كمية متاح</th><th className="p-2">المتاح الكلي</th></tr></thead>
+          <tbody>{data.map((s) => <tr key={s.category_id} className={`border-t ${s.low_stock?'bg-amber-50':''}`}><td className="p-2">{s.category_name}</td><td className="p-2 num text-green-700 font-bold">{s.period?.added || 0}</td><td className="p-2 num text-red-700 font-bold">{s.period?.sold || 0}</td><td className="p-2 num text-green-600">{s.numbered?.available || 0}</td><td className="p-2 num text-green-600">{s.quantity?.available || 0}</td><td className="p-2 num font-bold">{s.available_total || 0}</td></tr>)}</tbody>
+          <tfoot><tr className="bg-slate-100 font-bold"><td className="p-2">الإجمالي</td><td className="p-2 num text-green-700">{totAdded}</td><td className="p-2 num text-red-700">{totSold}</td><td colSpan={3}></td></tr></tfoot>
+        </table>
+      </Card>
+    );
+  }
   return (
     <Card className="mt-3 overflow-x-auto">
       <table className="w-full text-sm">
@@ -190,5 +517,99 @@ const StockTable = ({ data }) => {
         <tbody>{data.map((s) => <tr key={s.category_id} className={`border-t ${s.low_stock?'bg-amber-50':''}`}><td className="p-2">{s.category_name}</td><td className="p-2 num">{s.numbered?.total || 0}</td><td className="p-2 num text-green-600">{s.numbered?.available || 0}</td><td className="p-2 num">{s.numbered?.sold || 0}</td><td className="p-2 num">{s.quantity?.total || 0}</td><td className="p-2 num text-green-600">{s.quantity?.available || 0}</td><td className="p-2 num font-bold">{s.available_total || 0}</td></tr>)}</tbody>
       </table>
     </Card>
+  );
+};
+const OpeningTable = ({ data }) => {
+  const total = (data || []).reduce((s, x) => s + (x.opening_balance || 0), 0);
+  return (
+    <Card className="mt-3 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50"><tr className="text-right"><th className="p-2">النوع</th><th className="p-2">الاسم</th><th className="p-2">الهاتف</th><th className="p-2">الرصيد الافتتاحي</th><th className="p-2">الرصيد الحالي</th></tr></thead>
+        <tbody>
+          {(data || []).map((c) => (
+            <tr key={`${c.type}-${c.id}`} className="border-t">
+              <td className="p-2">{c.type === "supplier" ? "مورد" : c.type === "pos" ? "نقطة بيع" : "عميل"}</td>
+              <td className="p-2">{c.name}</td>
+              <td className="p-2 font-mono text-xs">{c.phone || "-"}</td>
+              <td className="p-2 num font-bold">{fmt(c.opening_balance)}</td>
+              <td className="p-2 num">{fmt(c.current_balance)}</td>
+            </tr>
+          ))}
+          {(!data || data.length === 0) && <tr><td colSpan={5} className="p-4 text-center text-slate-400">لا توجد أرصدة افتتاحية</td></tr>}
+        </tbody>
+        <tfoot><tr className="bg-slate-100 font-bold"><td colSpan={3} className="p-2">الإجمالي</td><td className="p-2 num">{fmt(total)}</td><td></td></tr></tfoot>
+      </table>
+    </Card>
+  );
+};
+
+const CustomerSalesTable = ({ summary, items }) => (
+  <div className="space-y-3 mt-3" data-testid="customer-sales-report">
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+      <Card className="p-3"><div className="text-xs text-slate-500">عدد العملاء</div><div className="text-xl font-bold num">{summary.length}</div></Card>
+      <Card className="p-3"><div className="text-xs text-slate-500">عدد الفواتير</div><div className="text-xl font-bold num">{items.length}</div></Card>
+      <Card className="p-3"><div className="text-xs text-slate-500">إجمالي المبيعات</div><div className="text-xl font-bold text-[#452480] num">{fmt(summary.reduce((sum, row) => sum + row.total, 0))}</div></Card>
+    </div>
+    <Card className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50"><tr className="text-right"><th className="p-2">العميل</th><th className="p-2">الهاتف</th><th className="p-2">عدد الفواتير</th><th className="p-2">الإجمالي</th></tr></thead>
+        <tbody>
+          {summary.map((row, index) => <tr key={`${row.customer_name}-${index}`} className="border-t"><td className="p-2 font-bold">{row.customer_name}</td><td className="p-2 font-mono text-xs">{row.customer_phone || "-"}</td><td className="p-2 num">{row.sales_count}</td><td className="p-2 num font-bold">{fmt(row.total)}</td></tr>)}
+          {!summary.length && <tr><td colSpan={4} className="p-6 text-center text-slate-400">لا توجد مبيعات لهذا العميل أو للفترة المحددة</td></tr>}
+        </tbody>
+      </table>
+    </Card>
+    <Card className="overflow-x-auto" data-testid="customer-sales-details">
+      <div className="border-b bg-slate-50 px-3 py-2 text-sm font-bold text-[#221340]">تفاصيل فواتير المبيعات</div>
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50"><tr className="text-right"><th className="p-2">التاريخ</th><th className="p-2">رقم الفاتورة</th><th className="p-2">العميل</th><th className="p-2">الفئة</th><th className="p-2">الكمية</th><th className="p-2">الإجمالي</th></tr></thead>
+        <tbody>
+          {items.map((sale, index) => {
+            const item = sale.items?.[0] || {};
+            return <tr key={`${sale.id || sale.number || "sale"}-${index}`} className="border-t">
+              <td className="p-2 whitespace-nowrap">{fmtDate(sale.created_at)}</td>
+              <td className="p-2 font-mono">{sale.number || "-"}</td>
+              <td className="p-2 font-bold">{sale.customer_name || "نقدي"}<div className="font-mono text-[10px] text-slate-500">{sale.customer_phone || ""}</div></td>
+              <td className="p-2">{item.category_name || "-"}</td>
+              <td className="p-2 num">{item.quantity || 0}</td>
+              <td className="p-2 num font-bold">{fmt(sale.total || 0)}</td>
+            </tr>;
+          })}
+          {!items.length && <tr><td colSpan={6} className="p-6 text-center text-slate-400">لا توجد تفاصيل مبيعات للفترة أو البحث المحدد</td></tr>}
+        </tbody>
+      </table>
+    </Card>
+  </div>
+);
+
+const MovementTable = ({ data }) => {
+  if (!data) return <Card className="mt-3 p-6 text-center text-slate-400">اختر فئة واضغط "عرض الحركة"</Card>;
+  return (
+    <div className="space-y-3 mt-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <Card className="p-3"><div className="text-xs text-slate-500">رصيد قبل الفترة</div><div className="text-xl font-bold num">{fmt(data.balance_before)}</div></Card>
+        <Card className="p-3"><div className="text-xs text-slate-500">وارد</div><div className="text-xl font-bold text-green-700 num">{fmt(data.total_in)}</div></Card>
+        <Card className="p-3"><div className="text-xs text-slate-500">صادر</div><div className="text-xl font-bold text-red-700 num">{fmt(data.total_out)}</div></Card>
+        <Card className="p-3"><div className="text-xs text-slate-500">رصيد بعد الفترة</div><div className="text-xl font-bold text-[#452480] num">{fmt(data.balance_after)}</div></Card>
+      </div>
+      <Card className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50"><tr className="text-right"><th className="p-2">التاريخ</th><th className="p-2">الرقم</th><th className="p-2">البيان</th><th className="p-2">وارد</th><th className="p-2">صادر</th><th className="p-2">الرصيد</th></tr></thead>
+          <tbody>
+            {data.entries.map((e, i) => (
+              <tr key={i} className="border-t">
+                <td className="p-2">{fmtDate(e.created_at)}</td>
+                <td className="p-2 font-mono">{e.number || "-"}</td>
+                <td className="p-2">{e.description}</td>
+                <td className="p-2 num text-green-700">{e.in || "-"}</td>
+                <td className="p-2 num text-red-700">{e.out || "-"}</td>
+                <td className="p-2 num font-bold">{e.balance}</td>
+              </tr>
+            ))}
+            {data.entries.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-slate-400">لا توجد حركات ضمن الفترة</td></tr>}
+          </tbody>
+        </table>
+      </Card>
+    </div>
   );
 };

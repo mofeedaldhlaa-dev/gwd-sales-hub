@@ -3,7 +3,7 @@ import api, { errText } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { fmtDate } from "@/lib/utils";
+import { fmtDate, openWhatsAppUrl } from "@/lib/utils";
 import { Ban, Unlock } from "lucide-react";
 
 export default function BlockedCustomers() {
@@ -15,8 +15,9 @@ export default function BlockedCustomers() {
   useEffect(() => { load(); }, []);
   const unblock = async (phone) => {
     try {
-      await api.post(`/public-blocks/${phone}/unblock`);
+      const r = await api.post(`/public-blocks/${phone}/unblock`);
       toast.success("تم رفع الحظر");
+      if (r.data?.whatsapp_url) openWhatsAppUrl(r.data.whatsapp_url);
       load();
     } catch (e) { toast.error(errText(e)); }
   };

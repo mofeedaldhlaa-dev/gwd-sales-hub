@@ -18,10 +18,19 @@ export default function CustomerStatement() {
   const doPrint = () => printStatement({ customer: c, entries: data.entries, username: user?.name || user?.username });
   return (
     <div className="space-y-4" data-testid="statement-page">
+      {c.status === "disabled" && (
+        <div className="rounded-lg border-2 border-red-500 bg-red-50 p-4 flex items-center gap-3" data-testid="cust-disabled-banner">
+          <div className="bg-red-600 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold text-xl shrink-0">⛔</div>
+          <div className="flex-1">
+            <div className="font-bold text-red-800 text-lg">حساب موقوف</div>
+            <div className="text-sm text-red-700">هذا العميل موقوف ولا يمكنه تسجيل الدخول لبوابة طلب الكروت أو الشراء حتى إعادة التفعيل من صفحة العملاء.</div>
+          </div>
+        </div>
+      )}
       <Card className="p-4 md:p-6">
         <div className="flex justify-between items-start flex-wrap gap-3">
           <div>
-            <h2 className="text-xl font-bold">{c.name}</h2>
+            <h2 className="text-xl font-bold flex items-center gap-2">{c.name} {c.status === "disabled" && <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full">موقوف</span>}</h2>
             <div className="text-slate-500 text-sm">{c.phone}</div>
           </div>
           <Button onClick={doPrint} className="bg-[#221340]" data-testid="print-stmt"><Printer size={16} className="ml-1"/> طباعة كشف الحساب</Button>

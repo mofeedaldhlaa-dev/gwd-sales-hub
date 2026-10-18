@@ -1,16 +1,29 @@
-import { useState } from "react";
+import PeriodFilter, { validatePeriodRange } from "@/components/PeriodFilter";
+import { CopyButton, extractPassword } from "@/components/CopyText";
+import { useState, useEffect, useRef, useCallback } from "react";
 import api, { errText } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { fmt, fmtDate, openWhatsApp, phoneFingerprint } from "@/lib/utils";
-import { printPublicOrder } from "@/lib/print";
-import { Wifi, CheckCircle, Copy, KeyRound, Phone, Ban, AlertCircle, Printer, History, Search } from "lucide-react";
+import { fmt, fmtDate, genUUID, openWhatsApp, openSMS, phoneFingerprint } from "@/lib/utils";
+import { printStatement } from "@/lib/print";
+import { printPublicOrder, printSaleInvoice, printReceipt } from "@/lib/print";
+import { Wifi, CheckCircle, Copy, KeyRound, Phone, Smartphone, LockKeyhole, Ban, AlertCircle, Clock3, XCircle, Printer, History, Search, ContactRound, Send, MessageSquare, FileText, Gift, Bell, ArrowLeftRight, ChevronDown, ChevronUp, ChevronLeft, LogOut, Minus, Plus, PackageCheck, Sparkles, Home, Heart, UserRound, Eye, EyeOff, Landmark, WalletCards, RefreshCw, Headphones, Store, MapPin } from "lucide-react";
+import { SubscriberFavorites, ContactPickerButton } from "@/components/PhoneInputExtras";
+import { saveOperationImage } from "@/lib/receiptImage";
+import { Download } from "lucide-react";
+import OverLimitDialog from "@/components/OverLimitDialog";
+import InstallPromptBanner from "@/components/InstallPromptBanner";
+import AlternativeNumberCard from "@/components/AlternativeNumberCard";
+import { confirmDuplicateOperation, withDuplicateApproval } from "@/lib/duplicateOperation";
+import { DirectCardPurchaseFlow, prefetchDirectCardPurchaseCatalog } from "@/pages/DirectCardPurchase";
+import PaymentAccountCard from "@/components/PaymentAccountCard";
+import { fetchPortalPaymentAccounts, paymentInstructionImageUrl } from "@/lib/paymentAccounts";
 
+import { getAppNow, monthStartIso, todayIso } from "@/lib/DateService";
 const ADMIN_WHATSAPP = "784225716";
 
 const priceForCustomer = (cat, ctype) => {
@@ -18,8 +31,73 @@ const priceForCustomer = (cat, ctype) => {
   const p = ctype === "pos" ? cat.sale_price_pos : cat.sale_price_customer;
   return (p ?? cat.sale_price) || 0;
 };
-
+const normalizeYemenPhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("967")) return digits.slice(3, 12);
+  if (digits.startsWith("0")) return digits.slice(1, 10);
+  return digits.slice(0, 9);
+};
+const isYemenMobilePhone = (value) => /^(7|9)\d{8}$/.test(normalizeYemenPhone(value));
+const normalizeOperationSearch = (value) => String(value ?? "").toLocaleLowerCase("ar").replace(/\s+/g, "");
+const operationMatchesSearch = (operation, type, query) => {
+  const needle = normalizeOperationSearch(query);
+  if (!needle) return true;
+  const values = type === "order"
+    ? [
+        operation?.number,
+        operation?.id,
+        operation?.customer_name,
+        operation?.category_name,
+        operation?.recipient_phone,
+        operation?.description,
+        operation?.total,
+        operation?.quantity,
+        ...(Array.isArray(operation?.cards) ? operation.cards : []),
+        "طلبكرت",
+        "شراءكرت",
+      ]
+    : type === "transfer" ? [
+        operation?.number,
+        operation?.id,
+        operation?.recipient_name,
+        operation?.recipient_phone,
+        operation?.description,
+        operation?.amount,
+        operation?.sender_debit,
+        operation?.commission,
+        "تحويلرصيد",
+      ] : [
+        operation?.operation,
+        operation?.id,
+        operation?.bank_name,
+        operation?.bank_account_type,
+        operation?.status,
+        operation?.status_label,
+        operation?.failure_reason,
+        operation?.amount,
+        operation?.receipt_number,
+        operation?.payment_reference,
+        "تأكيدالدفع",
+        "نجاحالعملية",
+        "فشل العملية",
+      ];
+  return values.some((value) => normalizeOperationSearch(value).includes(needle));
+};
+const PAYMENT_STATUS_POLL_MS = 3000;
+const PAYMENT_STATUS_RESPONSE_WINDOW_MS = 15000;
+const paymentFailureLabels = {
+  missing_transaction_id: "المرجع غير موجود، تأكد من صحة البيانات.",
+  unclaimed_transaction: "العملية غير موجودة، تأكد من صحة البيانات.",
+  bank_account_mismatch: "حساب السداد غير مطابق، تأكد من صحة البيانات.",
+  amount_mismatch: "المبلغ غير مطابق، تأكد من صحة البيانات.",
+  recipient_account_mismatch: "رقم الحساب غير مطابق، تأكد من صحة البيانات.",
+  stale_transaction: "الوقت غير صحيح، تأكد من بيانات العملية.",
+  verification_window_expired: "انتهت مهلة الاستجابة، أعد المحاولة.",
+  gateway_response_timeout: "انتهت مهلة الاستجابة، أعد المحاولة.",
+};
 export default function PublicOrder() {
+  const orderKeyRef = useRef("");
+  const autoPopupNotifRef = useRef("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [customer, setCustomer] = useState(null);
@@ -29,48 +107,560 @@ export default function PublicOrder() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
-  const [showRegister, setShowRegister] = useState(false);
+  const [authTab, setAuthTab] = useState("login");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [loginActionsDialog, setLoginActionsDialog] = useState(null);
+  const [posLocations, setPosLocations] = useState([]);
+  const [posLocationsLoading, setPosLocationsLoading] = useState(false);
+  const [showLoginInstallPrompt, setShowLoginInstallPrompt] = useState(false);
+  const [browserInstallEvent, setBrowserInstallEvent] = useState(null);
+  const [installPromptHint, setInstallPromptHint] = useState("");
   const [showChangePwd, setShowChangePwd] = useState(false);
+  const [orderError, setOrderError] = useState("");
+  // Value of the operation that hit the limit — feeds "المبلغ المطلوب سداده" in the unified dialog.
+  const [orderErrorAmount, setOrderErrorAmount] = useState(0);
   const [blocked, setBlocked] = useState(false);
   const [selectedCat, setSelectedCat] = useState(null);
+  const [sendToOther, setSendToOther] = useState(false);
+  const [recipientPhone, setRecipientPhone] = useState("");
+  const [recipientName, setRecipientName] = useState("");
+  const [sendMethod, setSendMethod] = useState("sms"); // sms | whatsapp
   const [loginError, setLoginError] = useState("");
+  const [accountNotFound, setAccountNotFound] = useState(false);
+  const [showAccountNotFound, setShowAccountNotFound] = useState(false);
   const [deviceMismatch, setDeviceMismatch] = useState(false);
+  const [accountDisabled, setAccountDisabled] = useState(false);
+  const [showAccountInfo, setShowAccountInfo] = useState(false);
+  const [showBalance, setShowBalance] = useState(true);
+  const [showPortalBanks, setShowPortalBanks] = useState(false);
+  const [instructionImageAccount, setInstructionImageAccount] = useState(null);
+  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false);
+  const [paymentConfirmation, setPaymentConfirmation] = useState({ bank_account_id: "", amount: "", verification_method: "reference", payment_reference: "", sms_text: "" });
+  const [paymentConfirmationResult, setPaymentConfirmationResult] = useState(null);
+  const [paymentConfirmationSubmitting, setPaymentConfirmationSubmitting] = useState(false);
+  const [paymentConfirmationRefreshing, setPaymentConfirmationRefreshing] = useState(false);
+  const [paymentConfirmationWaitExpired, setPaymentConfirmationWaitExpired] = useState(false);
+
+  const fetchPaymentConfirmationStatus = useCallback(async (verificationId) => {
+    if (!verificationId || !phone || !password) return null;
+    const response = await api.post(`/public/card-order/payment-confirmations/${verificationId}/status`, { phone, password });
+    const next = response.data || {};
+    setPaymentConfirmationResult((current) => ({ ...(current || {}), ...next }));
+    return next;
+  }, [phone, password]);
+
+  const refreshPaymentConfirmationNow = async () => {
+    const verificationId = paymentConfirmationResult?.id;
+    if (!verificationId || paymentConfirmationRefreshing) return;
+    setPaymentConfirmationRefreshing(true);
+    try {
+      await fetchPaymentConfirmationStatus(verificationId);
+    } catch {
+      toast.error("تعذر تحديث حالة الطلب الآن. ستستمر المحاولة تلقائياً.");
+    } finally {
+      setPaymentConfirmationRefreshing(false);
+    }
+  };
+
+  // The customer can see the review state change without resubmitting the SMS.
+  // The server remains the source of truth; this timer never approves or posts money.
+  useEffect(() => {
+    const verificationId = paymentConfirmationResult?.id;
+    if (!showPaymentConfirmation || !verificationId || !phone || !password) return undefined;
+    const terminal = new Set(["approved", "rejected", "blocked"]);
+    let cancelled = false;
+    let timer = null;
+    let responseWindowTimer = window.setTimeout(() => {
+      if (!cancelled) setPaymentConfirmationWaitExpired(true);
+    }, PAYMENT_STATUS_RESPONSE_WINDOW_MS);
+    const clearResponseWindow = () => {
+      if (responseWindowTimer) {
+        window.clearTimeout(responseWindowTimer);
+        responseWindowTimer = null;
+      }
+      setPaymentConfirmationWaitExpired(false);
+    };
+    const poll = async () => {
+      try {
+        const next = await fetchPaymentConfirmationStatus(verificationId);
+        if (cancelled) return;
+        if (terminal.has(String(next.status || "pending").toLowerCase())) {
+          clearResponseWindow();
+        } else {
+          timer = window.setTimeout(poll, PAYMENT_STATUS_POLL_MS);
+        }
+      } catch {
+        if (!cancelled) timer = window.setTimeout(poll, PAYMENT_STATUS_POLL_MS);
+      }
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+      if (responseWindowTimer) window.clearTimeout(responseWindowTimer);
+    };
+  }, [showPaymentConfirmation, paymentConfirmationResult?.id, fetchPaymentConfirmationStatus, phone, password]);
+
+  // Load credentials saved automatically after the last successful login.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("jwd_portal_saved");
+      if (raw) {
+        const decoded = JSON.parse(atob(raw));
+        if (decoded?.phone) {
+          setPhone(decoded.phone);
+          if (decoded.password) setPassword(decoded.password);
+        }
+      }
+    } catch { /* ignore corrupted storage */ }
+  }, []);
+
+  // The direct-purchase dialog is public, so warm its catalog while the login
+  // screen is visible instead of waiting for the user to open the dialog.
+  useEffect(() => {
+    prefetchDirectCardPurchaseCatalog().catch(() => {});
+  }, []);
+
+  const saveCredentials = (p, pwd) => {
+    try {
+      const enc = btoa(JSON.stringify({ phone: p, password: pwd }));
+      localStorage.setItem("jwd_portal_saved", enc);
+    } catch { /* localStorage unavailable */ }
+  };
   // Previous orders section
   const [showHistory, setShowHistory] = useState(false);
+  const [showAllOperations, setShowAllOperations] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [showTransferHistory, setShowTransferHistory] = useState(false);
+  const [transferHistory, setTransferHistory] = useState([]);
+  const [transferHistoryLoading, setTransferHistoryLoading] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
+  const [operationsSearch, setOperationsSearch] = useState("");
+  const [printingStmt, setPrintingStmt] = useState(false);
+  const [showStmtDialog, setShowStmtDialog] = useState(false);
+  const [statementPreview, setStatementPreview] = useState(null);
+  const [stmtStart, setStmtStart] = useState("");
+  const [stmtEnd, setStmtEnd] = useState("");
+  const [incentives, setIncentives] = useState({ enabled: false, categories: [], history: [] });
+  const [showIncentives, setShowIncentives] = useState(false);
+  const [recoveryMethod, setRecoveryMethod] = useState("whatsapp");
+  const [overLimitBanks, setOverLimitBanks] = useState([]);
+  const [portalBanks, setPortalBanks] = useState([]);
+  const [notifs, setNotifs] = useState([]);
+  const [notifUnread, setNotifUnread] = useState(0);
+  const [showNotifs, setShowNotifs] = useState(false);
+  const [popupNotif, setPopupNotif] = useState(null);
+  const [notifDocument, setNotifDocument] = useState(null);
+  const [showDirectPurchase, setShowDirectPurchase] = useState(false);
+  const [showPortalCategoryPicker, setShowPortalCategoryPicker] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [favoriteOffer, setFavoriteOffer] = useState(null);
+  const [portalFavorites, setPortalFavorites] = useState([]);
+  const [mode, setMode] = useState("card"); // "card" | "transfer"
+  const [tRecipient, setTRecipient] = useState("");
+  const [tAmount, setTAmount] = useState("");
+  const [tConfirm, setTConfirm] = useState(null); // preview after lookup
+  const [tLastOp, setTLastOp] = useState(null); // last successful transfer for image download
+
+  const loadPortalFavorites = async (ph, pw) => {
+    try {
+      const r = await api.get("/public/card-order/favorites", { params: { phone: ph || phone, password: pw || password } });
+      const remoteItems = r.data?.items || [];
+      const initialized = r.data?.initialized === true;
+      if (!initialized && !remoteItems.length) {
+        try {
+          const localItems = JSON.parse(localStorage.getItem("gwd_fav_subscribers") || "[]");
+          if (Array.isArray(localItems) && localItems.length) {
+            const migrated = await api.post("/public/card-order/favorites", { phone: ph || phone, password: pw || password, items: localItems });
+            setPortalFavorites(migrated.data?.items || localItems);
+            localStorage.removeItem("gwd_fav_subscribers");
+            return;
+          }
+        } catch { /* use the empty cloud list */ }
+      }
+      setPortalFavorites(remoteItems);
+    } catch { setPortalFavorites([]); }
+  };
+  const savePortalFavorites = async (items) => {
+    try {
+      const r = await api.post("/public/card-order/favorites", { phone, password, items });
+      setPortalFavorites(r.data?.items || items);
+      return true;
+    } catch (e) {
+      toast.error(errText(e));
+      return false;
+    }
+  };
+
+  const offerFavorite = (recipient, name = "", manualName = false) => {
+    const normalized = String(recipient || "").trim();
+    if (!normalized || portalFavorites.some((item) => item.phone === normalized)) return;
+    const accountName = String(name || "").trim();
+    setFavoriteOffer({ phone: normalized, name: manualName ? "" : (accountName || normalized), accountName, manualName });
+  };
+  const confirmFavoriteOffer = async () => {
+    if (!favoriteOffer) return;
+    const name = String(favoriteOffer.name || "").trim();
+    if (favoriteOffer.manualName && !name) {
+      toast.error("اكتب اسم الحساب قبل الحفظ");
+      return;
+    }
+    const next = [...portalFavorites, { phone: favoriteOffer.phone, name }];
+    if (await savePortalFavorites(next)) {
+      toast.success("تم حفظ الرقم في المفضلة داخل حسابك");
+      setFavoriteOffer(null);
+    }
+  };
+
+  const loadNotifs = async (ph, pw) => {
+    try {
+      const r = await api.post("/public/card-order/notifications", { phone: ph || phone, password: pw || password });
+      const items = r.data?.items || [];
+      setNotifs(items);
+      setNotifUnread(r.data?.unread || 0);
+      const adminNotice = items.find((item) => !item.read && item.kind === "admin_broadcast");
+      if (adminNotice && autoPopupNotifRef.current !== adminNotice.id) {
+        autoPopupNotifRef.current = adminNotice.id;
+        setPopupNotif(adminNotice);
+      }
+    } catch { setNotifs([]); setNotifUnread(0); }
+  };
+  const markNotifRead = async (id) => {
+    try {
+      await api.post("/public/card-order/notifications/mark-read", { phone, password, notif_id: id });
+      setNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+      setNotifUnread((u) => Math.max(0, u - 1));
+    } catch {}
+  };
+  const playNotificationChime = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    try {
+      const context = new AudioContextCtor();
+      const gain = context.createGain();
+      const now = context.currentTime;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.045, now + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+      gain.connect(context.destination);
+      [660, 880].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, now + index * 0.055);
+        oscillator.connect(gain);
+        oscillator.start(now + index * 0.055);
+        oscillator.stop(now + 0.24 + index * 0.055);
+      });
+      Promise.resolve(context.resume()).catch(() => {});
+      window.setTimeout(() => context.close().catch(() => {}), 420);
+    } catch { /* Browser may block audio until a user gesture. */ }
+  }, []);
+  useEffect(() => {
+    if (!popupNotif?.id) return;
+    playNotificationChime();
+    if (!popupNotif.read) markNotifRead(popupNotif.id);
+    // The popup id is the intentional one-shot trigger; function identities are render-local.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [popupNotif?.id]);
+  useEffect(() => {
+    if (!customer || !phone || !password) return undefined;
+    const timer = window.setInterval(() => loadNotifs(phone, password), 20000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.id, phone, password]);
+  const printNotifDocument = () => {
+    const document = notifDocument?.document;
+    if (!document) return;
+    if (document.type === "sale" && document.sale) {
+      printSaleInvoice({
+        sale: document.sale,
+        customer: document.customer,
+        username: document.sale.username || customer?.name,
+      });
+    } else if (document.type === "receipt" && document.receipt) {
+      printReceipt({
+        receipt: document.receipt,
+        party: document.party,
+        username: document.receipt.username || customer?.name,
+      });
+    }
+  };
+  const openNotifAction = (n) => {
+    markNotifRead(n.id);
+    if (n.details?.document?.type === "sale" || n.details?.document?.type === "receipt") {
+      setNotifDocument({ notification: n, document: n.details.document });
+      setShowNotifs(false);
+      return;
+    }
+    if (n.kind === "incentive") { setShowNotifs(false); setShowIncentives(true); }
+  };
+
+  const openNotifications = () => {
+    setShowNotifs(true);
+    const unread = notifs.filter((n) => !n.read);
+    if (unread.length) {
+      setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
+      setNotifUnread(0);
+      Promise.all(unread.map((n) => markNotifRead(n.id)));
+    }
+  };
+
+  const doTransferLookup = async () => {
+    if (!tRecipient || !tAmount || Number(tAmount) <= 0) { toast.error("أدخل رقم المشترك والمبلغ"); return; }
+    try {
+      const r = await api.post("/public/card-order/transfer/lookup", { phone, password, recipient_phone: tRecipient, amount: Number(tAmount) });
+      setTConfirm({ ...r.data, key: Math.random().toString(36).slice(2) + Date.now() });
+    } catch (e) {
+      const msg = errText(e);
+      if (isOverLimitMsg(msg)) {
+        showOverLimit(msg, transferDebit(tAmount));
+      } else {
+        toast.error(msg);
+      }
+      setTConfirm(null);
+    }
+  };
+  const [tSubmitting, setTSubmitting] = useState(false);
+  const doTransferConfirm = async () => {
+    if (!tConfirm || tSubmitting) return;
+    setTSubmitting(true);
+    try {
+      const body = { phone, password, recipient_phone: tRecipient, amount: Number(tAmount), idempotency_key: tConfirm.key };
+      let r;
+      try {
+        r = await api.post("/public/card-order/transfer/confirm", body);
+      } catch (e) {
+        const approved = await confirmDuplicateOperation(e);
+        if (approved === null) throw e;
+        if (!approved) return;
+        r = await api.post("/public/card-order/transfer/confirm", withDuplicateApproval(body));
+      }
+      toast.success(`تم التحويل بنجاح — رقم العملية ${r.data.number}`);
+      setTLastOp(r.data);
+      offerFavorite(r.data.recipient_phone || tRecipient, r.data.recipient_name);
+      setTConfirm(null); setTRecipient(""); setTAmount("");
+      try { const rc = await api.post("/public/card-order/login", { phone, password, device_id: phoneFingerprint() }); setCustomer(rc.data); } catch {}
+      loadNotifs();
+    } catch (e) {
+      const msg = errText(e);
+      if (isOverLimitMsg(msg)) {
+        showOverLimit(msg, transferDebit(tAmount));
+      } else {
+        toast.error(msg);
+      }
+    }
+    setTSubmitting(false);
+  };
+
+  const loadIncentives = async (ph, pw) => {
+    try {
+      const r = await api.post("/public/card-order/incentives", { phone: ph || phone, password: pw || password });
+      setIncentives(r.data || { enabled: false, categories: [], history: [] });
+    } catch { setIncentives({ enabled: false, categories: [], history: [] }); }
+  };
+  const loadOverLimitBanks = async () => {
+    try { const r = await api.get("/public/card-order/banks?show_in=over_limit"); setOverLimitBanks(r.data || []); }
+    catch { setOverLimitBanks([]); }
+  };
+  const loadPortalBanks = async () => {
+    try {
+      setPortalBanks(await fetchPortalPaymentAccounts());
+    } catch {
+      setPortalBanks([]);
+    }
+  };
+
+  const openPaymentConfirmation = (bankAccountId = "") => {
+    setPaymentConfirmation({ bank_account_id: bankAccountId, amount: "", verification_method: "reference", payment_reference: "", sms_text: "" });
+    setPaymentConfirmationResult(null);
+    setPaymentConfirmationWaitExpired(false);
+    setShowPaymentConfirmation(true);
+  };
+
+  const retryPaymentConfirmation = (payment) => {
+    const verificationMethod = payment?.verification_method === "reference" || payment?.verification_method === "sms_text"
+      ? payment.verification_method
+      : (payment?.payment_reference ? "reference" : "sms_text");
+    setPaymentConfirmation({
+      bank_account_id: payment?.bank_account_id || portalBanks[0]?.id || "",
+      amount: payment?.amount != null ? String(payment.amount) : "",
+      verification_method: verificationMethod,
+      payment_reference: payment?.payment_reference || "",
+      sms_text: "",
+    });
+    setPaymentConfirmationResult(null);
+    setPaymentConfirmationWaitExpired(false);
+    setShowAllOperations(false);
+    setShowPaymentConfirmation(true);
+    toast.info("تم تجهيز إعادة المحاولة؛ راجع الحساب والمبلغ وأدخل رقم المرجع أو نص الرسالة");
+  };
+
+  const submitPaymentConfirmation = async (event) => {
+    event.preventDefault();
+    if (!paymentConfirmation.bank_account_id) { toast.error("اختر حساب السداد"); return; }
+    if (!paymentConfirmation.amount || Number(paymentConfirmation.amount) <= 0) { toast.error("أدخل مبلغ السداد"); return; }
+    const verificationMethod = paymentConfirmation.verification_method === "sms_text" ? "sms_text" : "reference";
+    const paymentReference = verificationMethod === "reference" ? String(paymentConfirmation.payment_reference || "").trim() : "";
+    const smsText = verificationMethod === "sms_text" ? String(paymentConfirmation.sms_text || "").trim() : "";
+    if (verificationMethod === "reference" && !paymentReference) { toast.error("أدخل رقم مرجع العملية"); return; }
+    if (verificationMethod === "sms_text" && smsText.length < 10) { toast.error("الصق نص رسالة التحويل كاملة كما وصلت"); return; }
+    if (paymentReference && !/^[A-Za-z0-9٠-٩-]{6,32}$/.test(paymentReference)) { toast.error("أدخل رقم مرجع صحيحاً من 6 إلى 32 خانة"); return; }
+    setPaymentConfirmationSubmitting(true);
+    setPaymentConfirmationWaitExpired(false);
+    try {
+      const response = await api.post("/public/card-order/payment-confirmations", {
+        phone,
+        password,
+        bank_account_id: paymentConfirmation.bank_account_id,
+        amount: Number(paymentConfirmation.amount),
+        verification_method: verificationMethod,
+        payment_reference: paymentReference,
+        sms_text: smsText,
+        idempotency_key: genUUID(),
+      });
+      const created = { ...(response.data || {}), status: response.data?.status || "pending", financial_effect: response.data?.financial_effect || "none" };
+      setPaymentConfirmationResult(created);
+      toast.success("يرجى الانتظار، العملية قيد المراجعة");
+      if (created.id) {
+        try { await fetchPaymentConfirmationStatus(created.id); } catch { /* polling will retry */ }
+      }
+    } catch (error) {
+      if (error?.response?.status === 429) {
+        setPaymentConfirmationResult({ status: "blocked", payment_blocked: true, failure_code: "payment_attempt_limit", review_reason: errText(error) });
+      } else {
+        toast.error(errText(error));
+      }
+    } finally {
+      setPaymentConfirmationSubmitting(false);
+    }
+  };
+
+  // Single entry point for the over-limit notice, used by the card-purchase flow AND the
+  // transfer flow, so both screens show the exact same dialog with the same content.
+  const showOverLimit = (msg, amount) => {
+    setOrderErrorAmount(Number(amount || 0));
+    setOrderError(msg);
+    if (!overLimitBanks.length) loadOverLimitBanks();
+  };
+  const isOverLimitMsg = (msg) =>
+    (msg || "").includes("رصيدك لا يسمح") || (msg || "").includes("سقف") || (msg || "").includes("تجاوز");
+  // Preview the exact customer-specific commission used by the backend.
+  const transferDebit = (amount) => {
+    const a = Number(amount || 0);
+    const pct = Number(customer?.transfer_percentage ?? (ctype === "pos" ? 10 : 0));
+    const commission = Math.round(a * Math.max(0, Math.min(100, pct)) / 100 * 100) / 100;
+    return ctype === "pos" ? a - commission : a + commission;
+  };
+
+  const redeemIncentive = async (row, mode) => {
+    if (!row?.category_id || row?.pending_qty <= 0) return;
+    if (!window.confirm(mode === "credit"
+      ? `تقييد قيمة الحافز (${row.pending_qty} × ${fmt(row.unit_value)}) في حسابك؟`
+      : `استلام ${row.pending_qty} كرت حافز من فئة ${row.category_name}؟`)) return;
+    try {
+      const r = await api.post(`/public/card-order/incentives/redeem`, { phone, password, mode, category_id: row.category_id });
+      if (mode === "credit") toast.success(`تم تقييد ${fmt(r.data.value)} في حسابك بنجاح 🎁`);
+      else {
+        toast.success(`تم تسليم ${r.data.qty} كرت حافز 🎁`);
+        if (r.data.cards?.length) setResult({ cards: r.data.cards, recipient_phone: null, balance_after: customer?.balance || 0 });
+      }
+      await loadIncentives();
+      try {
+        const rc = await api.post("/public/card-order/login", { phone, password, device_id: phoneFingerprint() });
+        setCustomer(rc.data);
+      } catch {}
+    } catch (e) { toast.error(errText(e)); }
+  };
+
+  const runPrintStatement = async ({ start = "", end = "" } = {}) => {
+    setPrintingStmt(true);
+    try {
+      const body = { phone, password };
+      if (start) body.start = start;
+      if (end) body.end = end;
+      const r = await api.post("/public/card-order/statement", body);
+      const rangeTitle = start || end
+        ? `كشف حساب من ${start || "البداية"} إلى ${end || "اليوم"}`
+        : null;
+      setStatementPreview({
+        customer: r.data.customer,
+        entries: r.data.entries,
+        username: r.data.customer?.name || "",
+        rangeTitle,
+      });
+      setShowStmtDialog(false);
+    } catch (e) { toast.error(errText(e)); }
+    setPrintingStmt(false);
+  };
+
+  const openStmtDialog = () => {
+    setStmtStart(monthStartIso());
+    setStmtEnd(todayIso());
+    setShowStmtDialog(true);
+  };
 
   const contactCSForDeviceChange = () => {
-    const now = new Date();
+    const now = getAppNow();
     const msg = `طلب ربط هاتف جديد بحساب طلب الكرت\n\nرقم الهاتف / الحساب: ${phone}\nالتاريخ والوقت: ${now.toLocaleString("en-GB")}\n\nقمت باستبدال هاتفي القديم وأحتاج ربط حسابي بالهاتف الجديد.\nيرجى التواصل معي لإتمام العملية وإرسال كلمة المرور الجديدة.`;
     openWhatsApp(ADMIN_WHATSAPP, msg);
     toast.success("تم إرسال طلبك إلى خدمة العملاء، وسيتم التواصل معك لإكمال عملية ربط الهاتف.");
   };
 
-  const login = async (e) => {
+  const contactCSForDisabledAccount = () => {
+    const now = getAppNow();
+    const msg = `استفسار عن حساب موقوف\n\nرقم الهاتف / الحساب: ${phone}\nالتاريخ والوقت: ${now.toLocaleString("en-GB")}\n\nحسابي موقوف حالياً ولا أستطيع تسجيل الدخول.\nيرجى التواصل معي لمعرفة السبب وإعادة تفعيل الحساب.`;
+    openWhatsApp(ADMIN_WHATSAPP, msg);
+    toast.success("تم إرسال طلبك إلى خدمة العملاء.");
+  };
+
+  const login = async (e, overrideCredentials = null) => {
     if (e && e.preventDefault) e.preventDefault();
-    setLoginError(""); setDeviceMismatch(false);
-    if (!phone || !password) { setLoginError("أدخل رقم الهاتف وكلمة المرور"); return; }
+    if (loading) return;
+    setLoginError(""); setAccountNotFound(false); setShowAccountNotFound(false); setDeviceMismatch(false); setAccountDisabled(false);
+    const loginPhone = normalizeYemenPhone(overrideCredentials?.phone ?? phone);
+    const loginPassword = overrideCredentials?.password ?? password;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setLoginError("لا يتوفر اتصال بالإنترنت. لا يمكنك تسجيل الدخول — اتصل بالإنترنت وحاول مجدداً.");
+      return;
+    }
+    if (!loginPhone || !loginPassword) { setLoginError("أدخل رقم الهاتف وكلمة المرور"); return; }
+    if (!isYemenMobilePhone(loginPhone)) { setLoginError("أدخل رقم هاتف يمني صحيحاً من 9 أرقام"); return; }
     setLoading(true);
     try {
       const fp = await phoneFingerprint();
-      const r = await api.post("/public/card-order/login", { phone, password, device_id: fp });
+      const r = await api.post("/public/card-order/login", { phone: loginPhone, password: loginPassword, device_id: fp });
       setCustomer(r.data);
+      setPhone(loginPhone);
+      setPassword(loginPassword);
       const cr = await api.get("/public/card-order/categories");
       setCats(cr.data);
-      toast.success(`مرحباً ${r.data.name}`);
+      // Credentials are saved automatically after every successful login.
+      // The preference is intentionally not exposed in the login UI.
+      saveCredentials(loginPhone, loginPassword);
+      loadIncentives(loginPhone, loginPassword);
+      loadOverLimitBanks();
+      loadPortalBanks();
+      loadNotifs(loginPhone, loginPassword);
+      loadPortalFavorites(loginPhone, loginPassword);
     } catch (err) {
       const status = err.response?.status;
       const msg = errText(err);
       if (status === 429) { setBlocked(true); setLoginError(msg); }
       else if (status === 401) { setLoginError("كلمة المرور غير صحيحة"); }
-      else if (status === 404) { setLoginError("رقم الهاتف أو كلمة المرور غير صحيحة"); }
+      else if (status === 404) {
+        setAccountNotFound(true);
+        setLoginError("لا تمتلك حساباً بهذا الرقم، قم بإنشاء حساب الآن");
+        setShowAccountNotFound(true);
+      }
       else if (status === 403) {
         setLoginError(msg || "الحساب معطل");
-        // Detect device-mismatch (backend returns a message that starts with "الهاتف غير مرتبط")
         if ((msg || "").startsWith("الهاتف غير مرتبط")) setDeviceMismatch(true);
+        else if ((msg || "").includes("معطل") || (msg || "").includes("موقوف")) setAccountDisabled(true);
       }
       else if (!err.response) { setLoginError("تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مجدداً."); }
       else { setLoginError(msg || "حدث خطأ"); }
@@ -78,26 +668,104 @@ export default function PublicOrder() {
     setLoading(false);
   };
 
+  const buildCardSmsBody = (cards, catName, senderName) => {
+    const lines = [];
+    lines.push(`مرحباً،`);
+    if (senderName) lines.push(`أرسل لك ${senderName} كرت شحن:`);
+    else lines.push(`إليك تفاصيل كرت الشحن:`);
+    if (catName) lines.push(`الفئة: ${catName}`);
+    if (cards && cards.length) {
+      lines.push(cards.length === 1 ? `رقم الكرت:` : `أرقام الكروت:`);
+      cards.forEach((c) => lines.push(c));
+    }
+    lines.push(``);
+    lines.push(`— شبكة جواد نت اللاسلكية`);
+    return lines.join("\n");
+  };
+
+  const sendCardSms = (recipient, cards, catName) => {
+    const body = buildCardSmsBody(cards, catName, customer?.name);
+    if (sendMethod === "whatsapp") {
+      openWhatsApp(recipient, body);
+    } else {
+      openSMS(recipient, body);
+    }
+  };
+
   const request = async () => {
-    if (!category_id) { toast.error("اختر الفئة"); return; }
+    if (!category_id) { toast.error("قم باختيار فئة الكرت"); return; }
+    if (sendToOther) {
+      const digits = (recipientPhone || "").replace(/[^0-9+]/g, "");
+      if (digits.length < 6) { toast.error("أدخل رقم هاتف صحيح للمستلم"); return; }
+      setRecipientPhone(digits);
+    }
     setLoading(true);
+    setOrderError("");
     try {
-      const r = await api.post("/public/card-order/request", { phone, password, category_id, quantity: Number(quantity) });
-      setResult(r.data);
-      setSelectedCat(cats.find((c) => c.id === category_id));
-      toast.success("تم تنفيذ طلبك بنجاح");
-    } catch (e) { toast.error(errText(e)); }
+      if (!orderKeyRef.current) orderKeyRef.current = genUUID();
+      const payload = { phone, password, category_id, quantity: Number(quantity), idempotency_key: orderKeyRef.current };
+      if (sendToOther && recipientPhone) payload.recipient_phone = recipientPhone.replace(/[^0-9+]/g, "");
+      const r = await api.post("/public/card-order/request", payload);
+      const dataWithName = { ...r.data, recipient_name: sendToOther ? (r.data?.recipient_name || recipientName) : "" };
+      setResult(dataWithName);
+      orderKeyRef.current = "";
+      const cat = cats.find((c) => c.id === category_id);
+      setSelectedCat(cat);
+      toast.success(payload.recipient_phone ? `تم تنفيذ الطلب — تحويل إلى ${recipientName || payload.recipient_phone}` : "تم تنفيذ طلبك بنجاح");
+      if (payload.recipient_phone && r.data?.cards?.length) {
+        setTimeout(() => sendCardSms(payload.recipient_phone, r.data.cards, cat?.name), 600);
+        setTimeout(() => offerFavorite(payload.recipient_phone, r.data?.recipient_name || recipientName, true), 900);
+      }
+    } catch (e) {
+      const msg = errText(e);
+      if (isOverLimitMsg(msg)) {
+        showOverLimit(msg, totalPreview);
+      } else {
+        toast.error(msg);
+      }
+    }
     setLoading(false);
   };
 
-  const loadHistory = async () => {
+  const loadHistory = async (s, e) => {
     setHistoryLoading(true);
     try {
-      const r = await api.post("/public/card-order/my-orders", { phone, password, start: startDate || null, end: endDate || null });
+      const r = await api.post("/public/card-order/my-orders", { phone, password, start: s || null, end: e || null });
       setHistory(r.data || []);
       if (!(r.data || []).length) toast.info("لا توجد طلبات في الفترة المحددة");
     } catch (e) { toast.error(errText(e)); }
     setHistoryLoading(false);
+  };
+
+  const loadTransferHistory = async (s, e) => {
+    setTransferHistoryLoading(true);
+    try {
+      const r = await api.post("/public/card-order/my-transfers", { phone, password, start: s || null, end: e || null });
+      setTransferHistory(r.data || []);
+      if (!(r.data || []).length) toast.info("لا توجد عمليات في الفترة المحددة");
+    } catch (e) { toast.error(errText(e)); }
+    setTransferHistoryLoading(false);
+  };
+
+  const loadAllOperations = async (s, e) => {
+    setHistoryLoading(true);
+    setTransferHistoryLoading(true);
+    setPaymentHistoryLoading(true);
+    try {
+      const [ordersResponse, transfersResponse, paymentsResponse] = await Promise.all([
+        api.post("/public/card-order/my-orders", { phone, password, start: s || null, end: e || null }),
+        api.post("/public/card-order/my-transfers", { phone, password, start: s || null, end: e || null }),
+        api.post("/public/card-order/my-payment-confirmations", { phone, password, start: s || null, end: e || null }),
+      ]);
+      setHistory(ordersResponse.data || []);
+      setTransferHistory(transfersResponse.data || []);
+      setPaymentHistory(paymentsResponse.data || []);
+    } catch (e) {
+      toast.error(errText(e));
+    }
+    setHistoryLoading(false);
+    setTransferHistoryLoading(false);
+    setPaymentHistoryLoading(false);
   };
 
   const doPrint = (order) => {
@@ -107,6 +775,103 @@ export default function PublicOrder() {
   const copyCard = async (n) => {
     try { await navigator.clipboard.writeText(n); toast.success("تم نسخ رقم الكرت بنجاح"); }
     catch { toast.error("تعذر النسخ"); }
+  };
+
+  const copyBankValue = async (value, message = "تم نسخ بيانات الحساب") => {
+    try {
+      await navigator.clipboard.writeText(String(value || ""));
+      toast.success(message);
+    } catch {
+      toast.error("تعذر نسخ بيانات الحساب");
+    }
+  };
+
+  const copyAllCards = async (cards = []) => {
+    if (!cards.length) return;
+    try {
+      await navigator.clipboard.writeText(cards.join("\n"));
+      toast.success("تم نسخ جميع أرقام الكروت");
+    } catch { toast.error("تعذر نسخ أرقام الكروت"); }
+  };
+
+  const signOutPortal = () => {
+    setCustomer(null);
+    setPassword("");
+    setCats([]);
+    setCategoryId("");
+    setResult(null);
+    setSelectedCat(null);
+    setSendToOther(false);
+    setRecipientPhone("");
+    setRecipientName("");
+    setMode("card");
+    setShowAccountInfo(false);
+    setShowBalance(true);
+    setPortalBanks([]);
+    setShowPortalBanks(false);
+    setPopupNotif(null);
+    setShowPaymentConfirmation(false);
+    setPaymentConfirmationResult(null);
+    setShowFavorites(false);
+    setShowHistory(false);
+    setShowTransferHistory(false);
+    setShowAllOperations(false);
+    setPaymentHistory([]);
+    setTConfirm(null);
+    setTLastOp(null);
+    toast.success("تم تسجيل الخروج بأمان");
+  };
+
+  const openHelp = () => openWhatsApp(ADMIN_WHATSAPP, `مرحباً، أحتاج مساعدة في بوابة GAWAD NET.${phone ? `\nرقم الهاتف: ${phone}` : ""}`);
+  const openLoginPosLocations = async () => {
+    setLoginActionsDialog("pos");
+    setPosLocationsLoading(true);
+    try {
+      const response = await api.get("/public/pos-locations");
+      setPosLocations(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      setPosLocations([]);
+    } finally {
+      setPosLocationsLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (customer || authTab !== "login") {
+      setShowLoginInstallPrompt(false);
+      return undefined;
+    }
+    try {
+      if (localStorage.getItem("gwd_install_off") === "1" || sessionStorage.getItem("gwd_install_said") === "1") return undefined;
+      if (window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) return undefined;
+    } catch {}
+    try { sessionStorage.setItem("gwd_install_said", "1"); } catch {}
+    setShowLoginInstallPrompt(true);
+    const onBeforeInstall = (event) => {
+      event.preventDefault();
+      setBrowserInstallEvent(event);
+      window.__gwdBIP = event;
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    return () => window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+  }, [authTab, customer]);
+  const closeLoginInstallPrompt = (permanent = false) => {
+    if (permanent) {
+      try { localStorage.setItem("gwd_install_off", "1"); } catch {}
+    }
+    setShowLoginInstallPrompt(false);
+  };
+  const installLoginApp = async () => {
+    const event = browserInstallEvent || window.__gwdBIP;
+    if (event?.prompt) {
+      try {
+        await event.prompt();
+        const result = await event.userChoice;
+        if (result?.outcome === "accepted") closeLoginInstallPrompt(true);
+        else closeLoginInstallPrompt(false);
+      } catch { closeLoginInstallPrompt(false); }
+      return;
+    }
+    setInstallPromptHint("افتح قائمة المتصفح (⋮) ثم اختر «إضافة إلى الشاشة الرئيسية».");
   };
 
   const contactSupport = () => {
@@ -128,31 +893,128 @@ export default function PublicOrder() {
   }
 
   const currentCat = cats.find((x) => x.id === category_id);
-  const ctype = customer?.customer_type || "customer";
+  const ctype = String(customer?.customer_type || "customer").toLowerCase();
+  const canTransfer = ctype === "pos";
+  const sendCardToFavorite = (favorite) => {
+    setRecipientPhone(favorite.phone);
+    setRecipientName(favorite.name || favorite.phone);
+    setSendToOther(true);
+    setMode("card");
+    setShowHistory(false);
+    setShowAccountInfo(false);
+    setShowFavorites(false);
+    toast.success(`تم تجهيز إرسال الكرت إلى ${favorite.name || favorite.phone}`);
+  };
+  const sendBalanceToFavorite = (favorite) => {
+    if (!canTransfer) {
+      toast.error("إرسال الرصيد متاح لنقاط البيع فقط");
+      return;
+    }
+    setTRecipient(favorite.phone);
+    setTAmount("");
+    setTConfirm(null);
+    setTLastOp(null);
+    setMode("transfer");
+    setShowHistory(false);
+    setShowAccountInfo(false);
+    setShowFavorites(false);
+    toast.success(`تم تجهيز تحويل الرصيد إلى ${favorite.name || favorite.phone}`);
+  };
   const currentPrice = priceForCustomer(currentCat, ctype);
   const availNumbered = currentCat?.available_numbered ?? 0;
   const wantQty = Number(quantity) || 0;
   const insufficient = category_id && wantQty > 0 && wantQty > availNumbered;
   const totalPreview = currentPrice * wantQty;
+  const filteredHistory = history.filter((operation) => operationMatchesSearch(operation, "order", operationsSearch));
+  const filteredTransferHistory = transferHistory.filter((operation) => operationMatchesSearch(operation, "transfer", operationsSearch));
+  const filteredPaymentHistory = paymentHistory.filter((operation) => operationMatchesSearch(operation, "payment", operationsSearch));
+  const paymentStatus = String(paymentConfirmationResult?.status || "pending").toLowerCase();
+  const paymentEffectPosted = ["posted", "balance_added", "applied"].includes(String(paymentConfirmationResult?.financial_effect || "").toLowerCase());
+  const paymentFailureCode = String(paymentConfirmationResult?.failure_code || "").toLowerCase();
+  const paymentFailureReason = paymentConfirmationResult?.review_note || paymentConfirmationResult?.review_reason || paymentFailureLabels[paymentFailureCode] || "تأكد من صحة البيانات وأعد المحاولة.";
+  const paymentGatewayFailureMessage = paymentConfirmationResult?.failure_message || "";
+  const paymentBlocked = paymentConfirmationResult?.payment_blocked === true || paymentStatus === "blocked";
+  const isPortalHomeView = !showAccountInfo && !showAllOperations && !showFavorites && !showNotifs;
+  const openDirectPurchase = () => {
+    setShowDirectPurchase(true);
+    // Warm both requests before the dialog paints; the flow reuses this promise.
+    prefetchDirectCardPurchaseCatalog().catch(() => {});
+  };
 
   return (
-    <div className="min-h-screen brand-gradient flex items-center justify-center p-4" data-testid="public-order">
-      <Card className="w-full max-w-md p-6 bg-white">
-        <div className="text-center mb-6">
-          <div className="text-xl font-black text-[#221340]">شبكة جواد نت اللاسلكية</div>
-          <div className="mt-4 inline-block bg-[#D4AF37] text-[#1A0F33] px-6 py-2 rounded-lg font-bold text-lg">طلب كرت</div>
-        </div>
+    <div className={`po-portal-shell ${!customer ? "po-login-shell" : ""} min-h-screen px-4 pb-6 pt-5 text-[#221340]`} data-testid="public-order">
+      <div className="po-portal-width mx-auto w-full max-w-md">
+        <header className={`po-topbar mb-7 flex items-center justify-between gap-4 px-1 ${customer ? "po-authenticated-brand" : "po-public-brand po-login-brand"}`} data-testid="po-header">
+          <div className="flex items-center gap-2 text-[#221340]">
+            <img src="/icons/gawadnet-logo-web-white-20250925.png?v=1" alt="شعار GAWAD NET" className="h-12 w-12 rounded-[12px] object-contain" />
+            <div className="text-right">
+              <div className="po-brand-name text-xl font-black tracking-tight text-[#221340]">GAWAD NET</div>
+              <div className="po-brand-subtitle text-[10px] font-bold text-[#6B6278]">شبكة جواد نت اللاسلكية</div>
+            </div>
+          </div>
+          {customer && (
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={openNotifications} className="relative flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#221340] shadow-sm ring-1 ring-[#DDD6EE]" data-testid="po-bell" aria-label="الإشعارات">
+                <Bell size={20}/>
+                {notifUnread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#D4AF37] px-1 text-[10px] font-black text-[#1A0F33]" data-testid="po-bell-count">{notifUnread}</span>}
+              </button>
+              <button type="button" onClick={signOutPortal} className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#221340] shadow-sm ring-1 ring-[#DDD6EE]" data-testid="po-logout" aria-label="تسجيل الخروج"><LogOut size={19}/></button>
+            </div>
+          )}
+        </header>
 
+        <Card className={`po-main-card ${customer ? "po-dashboard-card" : "po-auth-card"} w-full rounded-[2rem] border border-[#E5DDF0] bg-white p-5 shadow-[0_14px_40px_rgba(26,15,51,0.08)] sm:p-7`}>
+        {null}
+        {!customer && authTab === "login" && (
+          <div data-testid="po-direct-purchase-promo" className="po-login-promo" data-testid="po-login-promo" aria-hidden="true">
+            <div className="po-login-promo-icon"><Wifi size={20} strokeWidth={2.2} /></div>
+            <div className="po-login-promo-copy">
+              <div className="po-login-promo-title">شراء كرت نت</div>
+              <div className="po-login-promo-subtitle">بسرعة وسهولة</div>
+              <div className="po-login-promo-note">استمتع بخدمة الإنترنت دون انقطاع</div>
+            </div>
+          </div>
+        )}
         {!customer && (
+          <>
+            <div className="po-auth-tabs" role="tablist" aria-label="الحساب" data-testid="po-auth-tabs">
+              <button type="button" role="tab" aria-selected={authTab === "login"} onClick={() => setAuthTab("login")} className={authTab === "login" ? "is-active" : ""} data-testid="po-login-tab">تسجيل الدخول</button>
+              <button type="button" role="tab" aria-selected={authTab === "register"} onClick={() => setAuthTab("register")} className={authTab === "register" ? "is-active" : ""} data-testid="po-register-tab">إنشاء حساب جديد</button>
+              </div>
+              <div className="po-auth-rest">
+            </div>
+            {authTab === "login" && <div className="po-form-hero po-login-welcome mb-3 text-right" data-testid="po-account-heading">
+              <div className="po-login-welcome-title">مرحباً بك 👋</div>
+              <p className="mt-1 text-xs leading-5 text-[#6B6278]">أدخل بياناتك للمتابعة</p>
+            </div>}
+            {authTab === "register" && <RegisterForm inline initialPhone={phone} onClose={() => setAuthTab("login")} recoveryMethod={recoveryMethod} onRecoveryMethodChange={setRecoveryMethod}/>}
+          </>
+        )}
+
+        {!customer && authTab === "login" && (
           <form onSubmit={login} className="space-y-3" data-testid="po-login-form" noValidate>
-            <div><Label>رقم الهاتف</Label><Input value={phone} onChange={(e) => { setPhone(e.target.value); setLoginError(""); }} data-testid="po-phone" autoComplete="tel" inputMode="tel"/></div>
-            <div><Label>كلمة المرور</Label><Input type="password" value={password} onChange={(e) => { setPassword(e.target.value); setLoginError(""); }} data-testid="po-password" autoComplete="current-password"/></div>
-            {loginError && (
-              <div className="rounded-md border border-red-300 bg-red-50 text-red-700 px-3 py-2 text-sm" data-testid="po-login-error" role="alert">
+            <div className="po-credential-field space-y-1.5"><Label className="text-sm font-bold text-[#221340]">رقم الهاتف</Label><YemenPhoneField value={phone} onChange={(value) => { setPhone(value); setLoginError(""); setAccountNotFound(false); setShowAccountNotFound(false); }} testid="po-phone"/></div>
+            <div className="po-credential-field space-y-1.5"><Label className="text-sm font-bold text-[#221340]">كلمة المرور</Label><div className="po-password-field relative"><Input type={showLoginPassword ? "text" : "password"} value={password} onChange={(e) => { setPassword(e.target.value); setLoginError(""); setAccountNotFound(false); setShowAccountNotFound(false); }} data-testid="po-password" autoComplete="current-password" placeholder="أدخل كلمة المرور" className="h-12 rounded-xl border-[#DDD8E7] bg-white px-10 text-base shadow-none"/><LockKeyhole size={18} fill="currentColor" strokeWidth={1.4} className="po-filled-field-icon pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2" aria-hidden="true"/>
+                <button type="button" className="po-password-toggle" onClick={() => setShowLoginPassword((visible) => !visible)} aria-label={showLoginPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"} data-testid="po-password-toggle">
+                  {showLoginPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+                </button>
+              </div></div>
+            {loginError && !accountNotFound && (
+              <div className={`rounded-md border px-3 py-2 text-sm ${accountDisabled ? 'border-red-400 bg-red-100 text-red-800' : 'border-red-300 bg-red-50 text-red-700'}`} data-testid="po-login-error" role="alert">
                 <div className="flex items-start gap-2">
-                  <AlertCircle size={16} className="mt-0.5 shrink-0"/><span>{loginError}</span>
+                  {accountDisabled ? <Ban size={18} className="mt-0.5 shrink-0"/> : <AlertCircle size={16} className="mt-0.5 shrink-0"/>}
+                  <div className="flex-1">
+                    {accountDisabled ? (
+                      <>
+                        <div className="font-bold text-base mb-1">⛔ الحساب موقوف</div>
+                        <div>حسابك موقوف حالياً. تواصل مع خدمة العملاء لإعادة تفعيل حسابك.</div>
+                      </>
+                    ) : (
+                      <span>{loginError}</span>
+                    )}
+                  </div>
                 </div>
-                {deviceMismatch && (
+                {false && deviceMismatch && (
                   <Button
                     type="button"
                     onClick={contactCSForDeviceChange}
@@ -162,79 +1024,395 @@ export default function PublicOrder() {
                     <Phone size={14} className="ml-1"/> إرسال لخدمة العملاء
                   </Button>
                 )}
+                {accountDisabled && (
+                  <Button
+                    type="button"
+                    onClick={contactCSForDisabledAccount}
+                    className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white"
+                    data-testid="po-contact-cs-disabled"
+                  >
+                    <Phone size={14} className="ml-1"/> تواصل مع خدمة العملاء
+                  </Button>
+                )}
               </div>
             )}
-            <Button type="submit" disabled={loading} className="w-full bg-[#221340]" data-testid="po-login">{loading?"جاري...":"دخول"}</Button>
-            <div className="flex justify-between text-sm">
-              <button type="button" onClick={() => setShowForgot(true)} className="text-[#452480] hover:underline" data-testid="po-forgot">نسيت كلمة المرور؟</button>
-              <button type="button" onClick={() => setShowRegister(true)} className="text-[#452480] hover:underline" data-testid="po-register">إنشاء حساب</button>
+            <div className="text-center text-sm font-bold text-[#452480]">
+              <button type="button" onClick={() => setShowForgot(true)} className="no-underline" data-testid="po-forgot">نسيت كلمة المرور؟</button>
             </div>
-            <div className="text-center text-xs text-slate-500 pt-2 border-t">لاتمتلك حساب .. <button type="button" onClick={() => setShowRegister(true)} className="text-[#D4AF37] font-bold hover:underline">إنشاء حساب</button></div>
+            {loading && (
+              <div className="po-login-spinner-box" data-testid="po-login-loading" role="status" aria-label="معالجة تسجيل الدخول">
+                <span className="po-login-spinner" aria-hidden="true">
+                  {Array.from({ length: 12 }, (_, index) => <i key={index} style={{ transform: `translateX(-50%) rotate(${index * 30}deg) translateY(-11px)`, animationDelay: `${index * -0.08}s` }} />)}
+                </span>
+              </div>
+            )}
+            <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-[#221340] text-base font-black text-white shadow-[0_10px_20px_rgba(34,19,64,0.16)] hover:bg-[#311B5C]" data-testid="po-login"><span>تسجيل الدخول</span><ChevronLeft size={20} strokeWidth={3} aria-hidden="true"/></Button>
           </form>
         )}
 
-        {customer && !result && (
-          <div className="space-y-3">
-            <Card className="p-3 bg-slate-50">
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-bold">{customer.name}</div>
-                  <div className="text-xs text-slate-500">{ctype === "pos" ? "نقطة بيع" : "عميل"}</div>
-                </div>
-                <button onClick={() => setShowChangePwd(true)} className="text-xs text-[#452480] hover:underline flex items-center gap-1" data-testid="po-change-pwd"><KeyRound size={12}/> تغيير كلمة المرور</button>
+        {!customer && (
+          <div className="po-auth-alt" data-testid="po-auth-alt">
+            <div className="po-auth-or"><span>أو</span></div>
+            <button type="button" className="po-direct-buy-btn" onClick={openDirectPurchase} data-testid="po-direct-purchase-link">
+              <span className="po-direct-buy-copy"><span className="po-direct-buy-title">شراء كرت نت مباشر بدون حساب</span><span className="po-direct-buy-subtitle">اختر الفئة • ادفع • أكّد عملية الدفع • استلم الكرت فوراً</span></span>
+            <ChevronLeft size={17} strokeWidth={3} />
+            </button>
+          </div>
+        )}
+        <Dialog open={Boolean(loginActionsDialog)} onOpenChange={(open) => { if (!open) setLoginActionsDialog(null); }}>
+          <DialogContent className="po-login-actions-dialog" dir="rtl">
+            <DialogHeader><DialogTitle>{loginActionsDialog === "pos" ? "نقاط البيع" : "خدمة العملاء"}</DialogTitle></DialogHeader>
+            {loginActionsDialog === "service" ? (
+              <div className="po-login-contact-buttons">
+                <a className="po-login-contact-call" href={`tel:+967${ADMIN_WHATSAPP}`}><Phone size={17} /> اتصال</a>
+                <a className="po-login-contact-whatsapp" href={`https://wa.me/967${ADMIN_WHATSAPP}`} target="_blank" rel="noreferrer"><MessageSquare size={17} /> واتساب</a>
               </div>
-              <div className="text-xs mt-2 grid grid-cols-3 gap-2">
-                <div><div className="text-slate-500">السقف</div><div className="num font-bold">{fmt(customer.credit_limit)}</div></div>
-                <div><div className="text-slate-500">المديونية</div><div className="num font-bold">{fmt(customer.balance)}</div></div>
-                <div><div className="text-slate-500">المتاح</div><div className="num font-bold text-green-600">{fmt(customer.available)}</div></div>
+            ) : (
+              <div className="space-y-3">
+          <button type="button" className="po-help-btn" onClick={openHelp} data-testid="po-help-btn"><span className="po-help-icon">؟</span><span className="po-help-copy"><span>المساعدة والدعم</span><span className="po-help-subtitle">الأسئلة الشائعة وطرق السداد</span></span></button>
+                <div className="po-login-pos-note">يمكنك إضافة رصيد إلى حسابك عبر نقاط البيع التالية، فقط أعطِ نقطة البيع رقم هاتفك المسجّل بحسابك والمبلغ، وسيتم التحويل فورًا. ✅</div>
+                {posLocationsLoading ? <div className="po-login-pos-empty">جاري تحميل نقاط البيع...</div> : posLocations.length ? <div className="po-login-pos-list">{posLocations.map((location, index) => <div className="po-login-pos-item" key={location.id || `${location.name}-${index}`}><b>{location.name}</b><span><MapPin size={13} /> {location.location || ""}</span></div>)}</div> : <div className="po-login-pos-empty">لا توجد نقاط بيع متاحة حالياً.</div>}
               </div>
-            </Card>
-            <div><Label>الفئة</Label>
-              <Select value={category_id} onValueChange={setCategoryId}>
-                <SelectTrigger data-testid="po-cat"><SelectValue placeholder="اختر"/></SelectTrigger>
-                <SelectContent>
-                  {cats.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name} - {fmt(priceForCustomer(c, ctype))}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            )}
+          </DialogContent>
+        </Dialog>
+        {showLoginInstallPrompt && !customer && authTab === "login" && (
+          <div className="po-login-install-modal" role="dialog" aria-modal="true" aria-label="تثبيت تطبيق جواد نت">
+            <div className="po-login-install-card">
+              <button type="button" className="po-login-install-close" onClick={() => closeLoginInstallPrompt(true)} aria-label="إغلاق">×</button>
+              <div className="po-login-install-icon">G</div>
+              <h3>ثبّت تطبيق جواد نت</h3>
+              <p>{installPromptHint || "أضف التطبيق إلى شاشتك الرئيسية لشراء الكروت ومتابعة حسابك بسرعة، بدون فتح المتصفح كل مرة."}</p>
+              <button type="button" className="po-login-install-go" onClick={installLoginApp}>تثبيت التطبيق الآن</button>
+              <button type="button" className="po-login-install-later" onClick={() => closeLoginInstallPrompt(false)}>لاحقاً</button>
             </div>
-            <div><Label>الكمية</Label><Input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} data-testid="po-qty"/></div>
-            {category_id && (
-              <Card className="p-3 bg-amber-50 border-amber-200 text-sm space-y-1" data-testid="po-price-preview">
-                <div className="flex justify-between"><span className="text-slate-600">السعر ({ctype === "pos" ? "نقطة بيع" : "عميل"})</span><span className="num font-bold gold-text">{fmt(currentPrice)}</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">الإجمالي</span><span className="num font-bold text-lg">{fmt(totalPreview)}</span></div>
+          </div>
+        )}
+
+        {customer && !result && (
+          <div className="po-dashboard-content space-y-3">
+            <div className="po-dashboard-head" data-testid="po-welcome">
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-[#6B6278]">مرحباً بك</div>
+                <div className="mt-1 truncate text-xl font-black text-[#221340]" data-testid="po-welcome-name">{customer.name}</div>
+              </div>
+            </div>
+
+            {isPortalHomeView && (
+              <div className="po-hero-card po-balance-card-surface" data-testid="po-hero-card">
+                <button type="button" className="po-hero-eye" onClick={() => setShowBalance((v) => !v)} data-testid="po-balance-toggle" aria-label={showBalance ? "إخفاء الرصيد" : "إظهار الرصيد"}>{showBalance ? <EyeOff size={16}/> : <Eye size={16}/>}</button>
+                <div className="po-hero-head"><span className="po-chip-light">الرصيد الحالي</span></div>
+                <div className="po-hero-value" data-testid="po-current-balance">
+                  {(() => { const b = Number(customer.balance || 0); return showBalance ? <><span className="po-balance-amount num">{fmt(Math.abs(b))}</span><span className="po-balance-unit">ريال {b > 0 ? "عليكم" : b < 0 ? "لكم" : ""}</span></> : <span className="po-balance-amount po-balance-masked">••••</span>; })()}
+                </div>
+              </div>
+            )}
+
+            {isPortalHomeView && <div className={`po-outside-actions ${canTransfer ? "po-has-transfer" : "po-card-only"}`} data-testid="po-outside-actions">
+              <button type="button" aria-pressed={mode === "card"} className={`po-outside-action po-outside-action-gold ${mode === "card" ? "po-outside-action-active" : ""}`} onClick={() => { setMode("card"); setShowAllOperations(false); }} data-testid="po-buy-card">
+                <Wifi size={18} className="po-outside-action-icon"/> شراء كرت
+              </button>
+              {canTransfer && <button type="button" aria-pressed={mode === "transfer"} className={`po-outside-action ${mode === "transfer" ? "po-outside-action-active po-outside-action-transfer-active" : ""}`} onClick={() => { setMode("transfer"); setShowAllOperations(false); }} data-testid="po-transfer-balance">
+                <ArrowLeftRight size={18} className="po-outside-action-icon"/> تحويل رصيد
+              </button>}
+            </div>}
+
+            {showAccountInfo && (
+              <Card className="po-glass-panel border-0 bg-[#F8F7FC] p-4 shadow-none" data-testid="po-account-info">
+                <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#E9E4F2]">
+                  <div className="text-sm font-black text-[#221340]">بيانات الحساب</div>
+                  <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${ctype === "pos" ? "bg-[#452480] text-white" : "bg-[#D4AF37] text-[#1A0F33]"}`} data-testid="po-account-type">
+                    {ctype === "pos" ? "نقطة بيع" : "عميل"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-2 text-sm">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#F0ECF7]">
+                    <span className="text-slate-500 text-xs">اسم الحساب</span>
+                    <span className="font-bold text-[#221340]" data-testid="po-info-name">{customer.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#F0ECF7]">
+                    <span className="text-slate-500 text-xs">رقم الهاتف</span>
+                    <span className="font-mono font-bold text-[#221340]" data-testid="po-info-phone">{customer.phone || phone}</span>
+                  </div>
+                  <AlternativeNumberCard customer={customer} />
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#F0ECF7]">
+                    <span className="text-slate-500 text-xs">كلمة المرور</span>
+                    <button onClick={() => setShowChangePwd(true)} className="text-xs text-[#452480] hover:underline flex items-center gap-1 font-bold" data-testid="po-change-pwd">
+                      <KeyRound size={12}/> تغيير كلمة المرور
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between py-2 bg-gradient-to-l from-[#D4AF37]/5 to-[#452480]/5 rounded px-2 -mx-2">
+                    <span className="text-slate-600 text-xs font-bold">الرصيد الحالي</span>
+                    {(() => {
+                      const b = Number(customer.balance || 0);
+                      if (!showBalance) return <span className="flex items-center gap-2 font-black text-[#452480]" data-testid="po-info-balance"><span className="tracking-[0.25em]">••••</span><button type="button" onClick={() => setShowBalance(true)} className="rounded-full p-1 hover:bg-[#F3EEF8]" aria-label="إظهار الرصيد"><Eye size={14}/></button></span>;
+                      const abs = Math.abs(b);
+                      if (b > 0) return (
+                        <span className="font-black text-red-700 text-base" data-testid="po-info-balance">
+                          <span className="num">{fmt(abs)}</span> ريال <span className="text-xs">عليكم</span>
+                        </span>
+                      );
+                      if (b < 0) return (
+                        <span className="font-black text-emerald-700 text-base" data-testid="po-info-balance">
+                          <span className="num">{fmt(abs)}</span> ريال <span className="text-xs">لكم</span>
+                        </span>
+                      );
+                      return (
+                        <span className="font-black text-slate-600 text-base" data-testid="po-info-balance">
+                          <span className="num">0</span> ريال
+                        </span>
+                      );
+                    })()}
+                  </div>
+                </div>
+                <div className="mt-4 border-t border-[#E9E4F2] pt-4" data-testid="po-portal-banks">
+                  <Button type="button" variant="outline" onClick={() => setShowPortalBanks(true)} className="flex h-12 w-full items-center justify-between rounded-2xl border-[#452480] px-3 text-right text-[#452480] hover:bg-[#F3EEF8]" data-testid="po-open-portal-banks" aria-haspopup="dialog">
+                    <span className="flex min-w-0 items-center gap-2 font-black"><Landmark size={17} className="shrink-0" /> الحسابات البنكية وطرق السداد</span>
+                    <span className="shrink-0 rounded-full bg-[#452480]/10 px-2 py-0.5 text-[10px] font-bold">{portalBanks.length} متاح</span>
+                  </Button>
+                  <div className="mt-2 text-[10px] leading-5 text-slate-500">اضغط لعرض بيانات السداد الرسمية ونسخها.</div>
+                </div>
+                <div className="mt-3 border-t border-[#E9E4F2] pt-3">
+                  <Button
+                    type="button"
+                    onClick={openStmtDialog}
+                    disabled={printingStmt}
+                    variant="outline"
+                    size="sm"
+                    className="w-full border-[#452480] text-[#452480] hover:bg-[#452480]/10 font-bold"
+                    data-testid="po-print-statement"
+                  >
+                    <FileText size={14} className="ml-1"/> طباعة كشف حساب
+                  </Button>
+                </div>
               </Card>
+            )}
+
+            {isPortalHomeView && <div className="po-service-tabs grid gap-1 rounded-2xl bg-[#F3EEF8] p-1" data-testid="po-mode-tabs" role="tablist" aria-label="الخدمات" style={{ gridTemplateColumns: canTransfer ? "repeat(2, minmax(0, 1fr))" : "1fr" }}>
+              <button onClick={() => setMode("card")} role="tab" aria-selected={mode === "card"} className={`rounded-xl py-3 text-sm font-black transition ${mode === "card" ? "bg-white text-[#452480] shadow-sm" : "text-[#6B6278]"}`} data-testid="po-mode-card"><Wifi size={16} className="inline ml-1"/> شراء كرت</button>
+              {canTransfer && <button onClick={() => setMode("transfer")} role="tab" aria-selected={mode === "transfer"} className={`rounded-xl py-3 text-sm font-black transition ${mode === "transfer" ? "bg-white text-[#452480] shadow-sm" : "text-[#6B6278]"}`} data-testid="po-mode-transfer"><ArrowLeftRight size={16} className="inline ml-1"/> تحويل لمشترك</button>}
+            </div>}
+
+            {isPortalHomeView && canTransfer && mode === "transfer" && !showAllOperations && (
+              <Card className="po-panel space-y-4 rounded-2xl border border-[#E5DDF0] bg-[#F8F7FC] p-4 shadow-none" data-testid="po-transfer">
+                <div>
+                  <Label className="font-bold text-[#221340]">رقم هاتف المستلم</Label>
+                  <RecipientPhoneField
+                    value={tRecipient}
+                    onChange={(value) => { setTRecipient(value); setTConfirm(null); }}
+                    cloudItems={portalFavorites}
+                    onCloudChange={savePortalFavorites}
+                    favoritePrefix="po-t-fav"
+                    phoneTestId="po-t-phone"
+                    contactTestId="po-t-contact-pick"
+                  />
+                </div>
+                <div><Label className="font-bold text-[#221340]">المبلغ</Label><Input type="number" inputMode="decimal" value={tAmount} onChange={(e) => { setTAmount(e.target.value); setTConfirm(null); }} data-testid="po-t-amount" className="h-14 rounded-2xl border-[#DDD8E7] bg-white shadow-none"/></div>
+                {!tConfirm && !tLastOp && <Button onClick={doTransferLookup} className="h-14 w-full rounded-2xl bg-[#221340] font-black hover:bg-[#311B5C]" data-testid="po-t-lookup">موافقة</Button>}
+                {tLastOp && !tConfirm && (
+                  <div className="space-y-2 rounded-2xl border border-[#D9CBE8] bg-[#F3EEF8] p-3 text-sm" data-testid="po-t-success">
+                    <div className="text-center font-black text-[#452480]">تم التحويل بنجاح</div>
+                    <div className="flex justify-between text-xs"><span className="text-slate-600">رقم العملية:</span><span className="font-mono font-bold">{tLastOp.number}</span></div>
+                    <div className="flex justify-between text-xs"><span className="text-slate-600">المستلم:</span><span className="font-bold">{tLastOp.recipient_name}</span></div>
+                    <div className="flex justify-between text-xs"><span className="text-slate-600">المبلغ:</span><span className="font-bold num">{fmt(tLastOp.amount)}</span></div>
+                    <div className="grid grid-cols-2 gap-1 pt-1">
+                      <Button size="sm" onClick={() => saveOperationImage({
+                        kind: "transfer",
+                        number: tLastOp.number,
+                        createdAt: tLastOp.created_at,
+                        senderName: customer?.name || "",
+                        recipientName: tLastOp.recipient_name,
+                        recipientPhone: tLastOp.recipient_phone,
+                        amount: tLastOp.amount,
+                        commission: tLastOp.commission || 0,
+                        senderDebit: tLastOp.sender_debit,
+                        recipientCredit: tLastOp.amount,
+                      })} className="bg-[#452480] hover:bg-[#5A2FA0]" data-testid="po-t-save-image">
+                        <Download size={12} className="ml-1"/> حفظ الإشعار كصورة
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setTLastOp(null)} data-testid="po-t-new">عملية جديدة</Button>
+                    </div>
+                  </div>
+                )}
+                {tConfirm && (
+                  <div className="space-y-2 rounded-2xl border border-[#D9CBE8] bg-[#F3EEF8] p-3 text-sm" data-testid="po-t-confirm-card">
+                    <div className="flex justify-between"><span>اسم المشترك:</span><span className="font-bold">{tConfirm.recipient_name}</span></div>
+                    <div className="flex justify-between"><span>رقم الهاتف:</span><span className="font-mono">{tConfirm.recipient_phone}</span></div>
+                    <div className="flex justify-between"><span>نوع الحساب:</span><span>{tConfirm.recipient_type === "pos" ? "نقطة بيع" : "عميل"}</span></div>
+                    <div className="flex justify-between border-t pt-1"><span>مبلغ التحويل:</span><span className="font-bold num">{fmt(tConfirm.amount)}</span></div>
+                    <div className="flex justify-between font-bold text-[#452480]"><span>المبلغ المستلم:</span><span className="num">{fmt(tConfirm.recipient_credit)}</span></div>
+                    {tConfirm.commission > 0 && (<>
+                      <div className="flex justify-between text-amber-700"><span>عمولة التحويل:</span><span className="num">{fmt(tConfirm.commission)}</span></div>
+                    </>)}
+                    <div className="flex justify-between font-bold border-t pt-1"><span>الخصم من رصيدك:</span><span className="num">{fmt(tConfirm.sender_debit)}</span></div>
+                    <div className="grid grid-cols-2 gap-1 pt-1">
+                      <Button onClick={doTransferConfirm} disabled={tSubmitting} className="rounded-xl bg-[#221340] hover:bg-[#311B5C]" data-testid="po-t-confirm">تأكيد العملية</Button>
+                      <Button onClick={() => setTConfirm(null)} variant="outline">إلغاء</Button>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )}
+            {canTransfer && mode === "transfer" && showTransferHistory && !showAllOperations && (
+              <div className="border-t pt-3" data-testid="po-transfer-history-wrap">
+                  <div className="space-y-3" data-testid="po-transfer-history">
+                    <StatementPeriodPicker
+                      onCancel={() => setShowTransferHistory(false)}
+                      onPrint={(s, e) => loadTransferHistory(s, e)}
+                      loading={transferHistoryLoading}
+                      submitLabel="بحث"
+                      submitIcon={<Search size={14} className="ml-1"/>}
+                      hideCancel
+                    />
+                    <OperationSearchField value={operationsSearch} onChange={setOperationsSearch} />
+                    <div className="space-y-2">
+                      {filteredTransferHistory.map((t) => (
+                        <Card key={t.id} className="p-3 text-sm border-[#E5DDF0]" data-testid={`po-transfer-${t.id}`}>
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="min-w-0">
+                              <div className="font-mono font-bold text-[#452480]">{t.number}</div>
+                              <div className="text-xs text-slate-500">{fmtDate(t.created_at)}</div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button size="sm" variant="outline" onClick={() => saveOperationImage({
+                                kind: "transfer",
+                                number: t.number,
+                                createdAt: t.created_at,
+                                senderName: customer?.name || "",
+                                recipientName: t.recipient_name,
+                                recipientPhone: t.recipient_phone,
+                                amount: t.amount,
+                                commission: t.commission || 0,
+                                senderDebit: t.sender_debit,
+                                recipientCredit: t.amount,
+                              })} className="h-7 px-2 text-xs" data-testid={`po-transfer-save-${t.id}`}>
+                                <Download size={10} className="ml-1"/> حفظ
+                              </Button>
+                              <span className="text-[10px] font-bold rounded-full px-2 py-0.5 bg-[#452480]/10 text-[#452480]">تحويل</span>
+                            </div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            <div><div className="text-slate-500">المستلم</div><div className="font-bold truncate">{t.recipient_name || "-"}</div></div>
+                            <div><div className="text-slate-500">رقم المستلم</div><div className="font-mono font-bold truncate">{t.recipient_phone || "-"}</div></div>
+                            <div><div className="text-slate-500">مبلغ التحويل</div><div className="num font-bold">{fmt(t.amount)}</div></div>
+                            {t.commission > 0 && <div><div className="text-slate-500">العمولة</div><div className="num font-bold text-amber-700">{fmt(t.commission)}</div></div>}
+                            <div><div className="text-slate-500">الخصم من رصيدك</div><div className="num font-bold text-red-700">{fmt(t.sender_debit)}</div></div>
+                          </div>
+                        </Card>
+                      ))}
+                      {!filteredTransferHistory.length && !transferHistoryLoading && <div className="po-operation-search-empty">{transferHistory.length ? "لا توجد نتائج مطابقة للبحث." : "لا توجد عمليات لعرضها. اختر فترة واضغط بحث."}</div>}
+                    </div>
+                  </div>
+              </div>
+            )}
+            {/* Over-limit notice — unified dialog for BOTH the card purchase and the transfer flows */}
+            <OverLimitDialog
+              open={!!orderError}
+              onClose={() => setOrderError("")}
+              message={orderError}
+              customer={customer}
+              opAmount={orderErrorAmount}
+              banks={overLimitBanks}
+            />
+            {isPortalHomeView && (!canTransfer || mode === "card") && !showAllOperations && (<>
+            <section className="po-section-card" data-testid="po-card-order-section">
+            <div className="space-y-2">
+              <Label>الفئة</Label>
+              <button type="button" onClick={() => setShowPortalCategoryPicker(true)} className="direct-card-purchase-select po-portal-category-select" data-testid="po-cat">
+                <span className={currentCat ? "text-[#221340]" : "text-[#8B819A]"}>{currentCat ? `${currentCat.name} — ${fmt(currentPrice)} ريال` : "قم باختيار فئة الكرت"}</span>
+                <ChevronDown size={18} className="shrink-0 text-[#452480]" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <Label>الكمية</Label>
+              <Input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} data-testid="po-qty" className="h-14 rounded-2xl border-[#DDD8E7] bg-white text-lg font-black shadow-none"/>
+            </div>
+            {category_id && (
+              <div className="rounded-2xl border border-[#E5DDF0] bg-[#F8F7FC] px-4 py-3 text-sm" data-testid="po-price-preview">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-500">السعر</span>
+                  <span className="num font-bold text-[#B88719]">{fmt(currentPrice)} ريال</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-[#E5DDF0] pt-1.5 mt-1.5">
+                  <span className="font-bold text-[#221340]">الإجمالي</span>
+                  <span className="num text-lg font-black text-[#452480]">{fmt(totalPreview)} ريال</span>
+                </div>
+              </div>
             )}
             {insufficient && (
               <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 text-red-700 px-3 py-2 text-sm" data-testid="po-no-stock" role="alert">
                 <AlertCircle size={16} className="mt-0.5 shrink-0"/><span>لا تتوفر كمية الكروت المطلوبة</span>
               </div>
             )}
-            <Button onClick={request} disabled={loading || !category_id || wantQty < 1 || insufficient} className="w-full bg-[#D4AF37] text-[#1A0F33] font-bold hover:bg-[#C5A028] text-lg py-6 disabled:opacity-50" data-testid="po-request">طلب</Button>
 
-            {/* Previous orders section */}
-            <div className="pt-3 border-t">
-              <button type="button" onClick={() => setShowHistory((v) => !v)} className="w-full flex items-center justify-between text-sm font-bold text-[#221340]" data-testid="po-history-toggle">
-                <span className="flex items-center gap-2"><History size={16}/> الطلبات السابقة</span>
-                <span className="text-[#452480]">{showHistory ? "إخفاء" : "عرض"}</span>
-              </button>
-              {showHistory && (
-                <div className="mt-3 space-y-3" data-testid="po-history">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div><Label className="text-xs">من تاريخ</Label><Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} data-testid="po-history-start"/></div>
-                    <div><Label className="text-xs">إلى تاريخ</Label><Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} data-testid="po-history-end"/></div>
+            {/* Send to another phone */}
+            <div className="rounded-2xl border border-[#E5DDF0] bg-[#F8F7FC] p-4 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={sendToOther} onChange={(e) => { setSendToOther(e.target.checked); if (!e.target.checked) setRecipientPhone(""); }} data-testid="po-send-other-toggle" className="h-4 w-4"/>
+                <Send size={14} className="text-[#452480]"/>
+                <span className="text-sm font-medium">إرسال الكرت لرقم آخر</span>
+              </label>
+              {sendToOther && (
+                <div className="space-y-2 pt-1">
+                  <RecipientPhoneField
+                    value={recipientPhone}
+                    currentName={recipientName}
+                    onChange={(value) => { setRecipientPhone(value); setRecipientName(""); }}
+                    onNameChange={setRecipientName}
+                    cloudItems={portalFavorites}
+                    onCloudChange={savePortalFavorites}
+                    favoritePrefix="po-card-fav"
+                    phoneTestId="po-recipient-phone"
+                    contactTestId="po-pick-contact"
+                  />
+                  {recipientName && (
+                    <div className="flex items-center gap-2 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1" data-testid="po-recipient-name">
+                      <ContactRound size={14}/>
+                      <span>الاسم: <strong>{recipientName}</strong></span>
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-sm font-bold text-[#221340] mb-2">طريقة الإرسال</div>
+                    <div className="grid grid-cols-2 gap-2" data-testid="po-card-send-method">
+                      <label className={`flex h-14 items-center justify-center gap-2 rounded-2xl border text-sm font-bold transition cursor-pointer ${sendMethod === "whatsapp" ? "border-[#452480] bg-[#F3EEF8] text-[#452480]" : "border-[#DDD6EE] bg-[#F4F1FA] text-[#6B6278]"}`}>
+                        <input className="sr-only" type="radio" name="send-method" checked={sendMethod === "whatsapp"} onChange={() => setSendMethod("whatsapp")} data-testid="po-send-whatsapp"/>
+                        <MessageSquare size={17}/> <span>واتساب</span>
+                      </label>
+                      <label className={`flex h-14 items-center justify-center gap-2 rounded-2xl border text-sm font-bold transition cursor-pointer ${sendMethod === "sms" ? "border-[#452480] bg-[#F3EEF8] text-[#452480]" : "border-[#DDD6EE] bg-[#F4F1FA] text-[#6B6278]"}`}>
+                        <input className="sr-only" type="radio" name="send-method" checked={sendMethod === "sms"} onChange={() => setSendMethod("sms")} data-testid="po-send-sms"/>
+                        <Send size={17}/> <span>رسالة نصية SMS</span>
+                      </label>
+                    </div>
                   </div>
-                  <Button onClick={loadHistory} disabled={historyLoading} variant="outline" className="w-full" data-testid="po-history-search"><Search size={14} className="ml-1"/> {historyLoading ? "جاري..." : "بحث"}</Button>
+                </div>
+              )}
+            </div>
+
+            <Button onClick={request} disabled={loading || !category_id || wantQty < 1 || insufficient} className="h-16 w-full rounded-2xl bg-[#221340] text-lg font-black text-white shadow-[0_10px_20px_rgba(34,19,64,0.14)] hover:bg-[#311B5C] disabled:opacity-50" data-testid="po-request">{loading ? "جاري التنفيذ..." : "شراء كرت"}</Button>
+            </section>
+            </>
+            )}
+
+            {/* Previous orders section — visible only in card-buying mode */}
+            {isPortalHomeView && (!canTransfer || mode === "card") && showHistory && !showAllOperations && (
+            <div className="border-t pt-3">
+                <div className="space-y-3" data-testid="po-history">
+                  <StatementPeriodPicker
+                    onCancel={() => setShowHistory(false)}
+                    onPrint={(s, e) => loadHistory(s, e)}
+                    loading={historyLoading}
+                    submitLabel="بحث"
+                    submitIcon={<Search size={14} className="ml-1"/>}
+                    hideCancel
+                  />
+                  <OperationSearchField value={operationsSearch} onChange={setOperationsSearch} />
 
                   <div className="space-y-2">
-                    {history.map((o) => (
-                      <Card key={o.id} className="p-3 text-sm border-slate-200" data-testid={`po-order-${o.id}`}>
+                    {filteredHistory.map((o) => (
+                      <Card key={o.id} className="p-3 text-sm border-[#E5DDF0]" data-testid={`po-order-${o.id}`}>
                         <div className="flex justify-between items-start gap-2">
                           <div className="min-w-0">
-                            <div className="font-mono font-bold text-[#452480]" data-testid={`po-order-number-${o.id}`}>{o.number}</div>
+                            <div className="font-mono font-bold text-[#452480]" data-testid={`po-order-number-${o.id}`}>{o.number}{o.source === "public_direct_payment" && <span className="mr-2 rounded-full bg-[#452480]/10 px-2 py-0.5 font-sans text-[10px] font-bold text-[#452480]" data-testid={`po-order-direct-badge-${o.id}`}>شراء مباشر</span>}</div>
                             <div className="text-xs text-slate-500">{fmtDate(o.created_at)}</div>
                           </div>
                           <Button size="sm" variant="outline" onClick={() => doPrint(o)} className="shrink-0" data-testid={`po-order-print-${o.id}`}><Printer size={12} className="ml-1"/> طباعة</Button>
@@ -245,12 +1423,18 @@ export default function PublicOrder() {
                           <div><div className="text-slate-500">الكمية</div><div className="num font-bold">{o.quantity}</div></div>
                           <div><div className="text-slate-500">الإجمالي</div><div className="num font-bold">{fmt(o.total)}</div></div>
                         </div>
+                        {o.recipient_phone && (
+                          <div className="mt-2 flex items-center gap-2 text-xs bg-amber-50 border border-amber-200 rounded px-2 py-1 text-amber-900" data-testid={`po-order-recipient-${o.id}`}>
+                            <Send size={12} className="text-amber-700"/>
+                            <span>رقم المستلم: <span className="font-mono font-bold">{o.recipient_phone}</span></span>
+                          </div>
+                        )}
                         {o.cards?.length > 0 && (
                           <div className="mt-2 pt-2 border-t">
                             <div className="text-slate-500 text-xs mb-1">الكروت:</div>
                             <div className="space-y-1">
                               {o.cards.map((c) => (
-                                <div key={c} className="flex items-center justify-between bg-slate-50 p-1.5 rounded text-xs">
+                                <div key={c} className="flex items-center justify-between bg-[#F8F7FC] p-1.5 rounded text-xs">
                                   <span className="font-mono tracking-wider">{c}</span>
                                   <Button size="sm" variant="outline" onClick={() => copyCard(c)} className="h-6 px-2 text-xs"><Copy size={10}/> نسخ</Button>
                                 </div>
@@ -260,11 +1444,93 @@ export default function PublicOrder() {
                         )}
                       </Card>
                     ))}
-                    {history.length === 0 && !historyLoading && <div className="text-center text-xs text-slate-400 py-4">لا توجد طلبات لعرضها. اختر فترة واضغط بحث.</div>}
+                    {!filteredHistory.length && !historyLoading && <div className="po-operation-search-empty">{history.length ? "لا توجد نتائج مطابقة للبحث." : "لا توجد طلبات لعرضها. اختر فترة واضغط بحث."}</div>}
                   </div>
                 </div>
-              )}
             </div>
+            )}
+
+            {showAllOperations && (
+              <div className="space-y-3" data-testid="po-all-operations">
+                <div className="rounded-2xl border border-[#E5DDF0] bg-[#F8F7FC] p-4">
+                  <div className="text-lg font-black text-[#221340]">العمليات السابقة</div>
+                  <div className="mt-1 text-xs leading-6 text-[#6B6278]">عرض طلبات الكروت والتحويلات وتأكيدات الدفع خلال الفترة المحددة.</div>
+                  <StatementPeriodPicker
+                    onCancel={() => setShowAllOperations(false)}
+                    onPrint={(s, e) => loadAllOperations(s, e)}
+                    loading={historyLoading || transferHistoryLoading || paymentHistoryLoading}
+                    submitLabel="بحث"
+                    submitIcon={<Search size={14} className="ml-1"/>}
+                    hideCancel
+                  />
+                  <OperationSearchField value={operationsSearch} onChange={setOperationsSearch} />
+                </div>
+                <div className="space-y-2">
+                  {filteredHistory.map((o) => (
+                    <Card key={`order-${o.id}`} className="border-[#E5DDF0] bg-white p-3 text-sm" data-testid={`po-all-order-${o.id}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div><div className="font-mono font-bold text-[#452480]">{o.number}</div><div className="text-xs text-slate-500">{fmtDate(o.created_at)}</div></div>
+                        <span className="rounded-full bg-[#D4AF37]/20 px-2 py-1 text-[10px] font-bold text-[#1A0F33]">{o.source === "public_direct_payment" ? "شراء مباشر" : "طلب كرت"}</span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs"><div><div className="text-slate-500">الفئة</div><div className="font-bold">{o.category_name || "-"}</div></div><div><div className="text-slate-500">الكمية</div><div className="num font-bold">{o.quantity}</div></div><div><div className="text-slate-500">الإجمالي</div><div className="num font-bold">{fmt(o.total)}</div></div><div><div className="text-slate-500">الحساب</div><div className="truncate font-bold">{o.customer_name || customer.name}</div></div></div>
+                      {o.recipient_phone && <div className="mt-2 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900" data-testid={`po-all-order-recipient-${o.id}`}><Send size={12} className="text-amber-700"/><span>رقم المستلم: <span className="font-mono font-bold">{o.recipient_phone}</span></span></div>}
+                      {o.cards?.length > 0 && <div className="mt-2 border-t border-[#E9E4F2] pt-2" data-testid={`po-all-order-cards-${o.id}`}>
+                        <div className="mb-1 text-xs text-slate-500">أرقام الكروت</div>
+                        <div className="space-y-1">{o.cards.map((c) => <div key={c} className="flex items-center justify-between gap-2 rounded bg-[#F8F7FC] p-1.5 text-xs"><span className="font-mono tracking-wider" data-testid={`po-all-card-${c}`}>{c}</span><Button size="sm" variant="outline" onClick={() => copyCard(c)} className="h-6 px-2 text-xs" data-testid={`po-all-copy-card-${c}`}><Copy size={10}/> نسخ</Button></div>)}</div>
+                      </div>}
+                      <Button size="sm" variant="outline" onClick={() => doPrint(o)} className="mt-2 h-9 w-full border-[#452480] text-[#452480]" data-testid={`po-all-order-print-${o.id}`}><Printer size={12} className="ml-1"/> طباعة الطلب</Button>
+                    </Card>
+                  ))}
+                  {filteredTransferHistory.map((t) => (
+                    <Card key={`transfer-${t.id}`} className="border-[#E5DDF0] bg-white p-3 text-sm" data-testid={`po-all-transfer-${t.id}`}>
+                      <div className="flex items-start justify-between gap-2"><div><div className="font-mono font-bold text-[#452480]">{t.number}</div><div className="text-xs text-slate-500">{fmtDate(t.created_at)}</div></div><span className="rounded-full bg-[#452480]/10 px-2 py-1 text-[10px] font-bold text-[#452480]">تحويل رصيد</span></div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs"><div><div className="text-slate-500">المستلم</div><div className="truncate font-bold">{t.recipient_name || "-"}</div></div><div><div className="text-slate-500">رقم المستلم</div><div className="font-mono font-bold">{t.recipient_phone || "-"}</div></div><div><div className="text-slate-500">المبلغ</div><div className="num font-bold">{fmt(t.amount)}</div></div><div><div className="text-slate-500">الخصم</div><div className="num font-bold text-red-700">{fmt(t.sender_debit)}</div></div></div>
+                      <Button size="sm" variant="outline" onClick={() => saveOperationImage({ kind: "transfer", number: t.number, createdAt: t.created_at, senderName: customer?.name || "", recipientName: t.recipient_name, recipientPhone: t.recipient_phone, amount: t.amount, commission: t.commission || 0, senderDebit: t.sender_debit, recipientCredit: t.amount })} className="mt-2 h-9 w-full border-[#452480] text-[#452480]" data-testid={`po-all-transfer-save-${t.id}`}><Download size={12} className="ml-1"/> حفظ العملية</Button>
+                    </Card>
+                  ))}
+                  {filteredPaymentHistory.map((payment) => {
+                    const isSuccess = payment.success === true || (payment.status === "approved" && payment.financial_effect === "posted");
+                    const isFailure = payment.status === "rejected";
+                    return (
+                      <Card key={`payment-${payment.id}`} className="po-payment-history-card border-[#D7E2EF] bg-white p-3 text-sm" data-testid={`po-all-payment-${payment.id}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-mono font-bold text-[#245C9D] break-words">{payment.operation || payment.id || "-"}</div>
+                            <div className="text-xs text-slate-500">{fmtDate(payment.created_at)}</div>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${isSuccess ? "bg-emerald-100 text-emerald-800" : isFailure ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>
+                            {isSuccess ? "نجاح العملية" : isFailure ? "فشل العملية" : (payment.status_label || "قيد المراجعة")}
+                          </span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded-xl bg-[#F5F8FC] p-2"><div className="text-slate-500">العملية</div><div className="mt-1 break-words font-bold">{payment.operation || "-"}</div></div>
+                          <div className="rounded-xl bg-[#F5F8FC] p-2"><div className="text-slate-500">المبلغ</div><div className="mt-1 num font-black">{fmt(payment.amount)} ريال</div></div>
+                          <div className="rounded-xl bg-[#F5F8FC] p-2"><div className="text-slate-500">نوع حساب السداد</div><div className="mt-1 break-words font-bold">{payment.bank_account_type || "-"}</div><div className="mt-0.5 break-words text-[10px] text-slate-500">{payment.bank_name || "حساب السداد"}</div></div>
+                          <div className="rounded-xl bg-[#F5F8FC] p-2"><div className="text-slate-500">حالة العملية</div><div className={`mt-1 break-words font-bold ${isSuccess ? "text-emerald-700" : isFailure ? "text-red-700" : "text-amber-700"}`}>{payment.status_label || payment.status || "-"}</div></div>
+                        </div>
+                        {isSuccess && (
+                          <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800" data-testid={`po-all-payment-success-${payment.id}`}>
+                            <div className="font-black">نجاح العملية — تمت إضافة المبلغ إلى الحساب</div>
+                            {payment.receipt_number && <div className="mt-1">سند القبض: <strong dir="ltr">{payment.receipt_number}</strong></div>}
+                            {payment.payment_reference && <div className="mt-1 break-words">المرجع: <strong dir="ltr">{payment.payment_reference}</strong></div>}
+                          </div>
+                        )}
+                        {isFailure && (
+                          <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-2 text-xs leading-6 text-red-800" data-testid={`po-all-payment-failure-${payment.id}`}>
+                            <span className="font-black">فشل العملية — سبب الفشل: </span>{payment.failure_reason || "لم تكتمل مطابقة بيانات التحويل."}
+                            {payment.gateway_message_text && <div className="mt-2 rounded-lg border border-red-100 bg-white/80 p-2"><div className="mb-1 font-black">نص رسالة Gateway كما وصل:</div><div className="whitespace-pre-wrap break-words font-mono text-[11px]" dir="auto">{payment.gateway_message_text}</div></div>}
+                            <Button type="button" size="sm" variant="outline" onClick={() => retryPaymentConfirmation(payment)} className="mt-3 h-10 w-full rounded-xl border-[#452480] bg-white font-black text-[#452480] hover:bg-[#F3EEF8]" data-testid={`po-all-payment-retry-${payment.id}`}>
+                              <RefreshCw size={14} className="ml-1" /> إعادة المحاولة
+                            </Button>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })}
+                  {!filteredHistory.length && !filteredTransferHistory.length && !filteredPaymentHistory.length && !historyLoading && !transferHistoryLoading && !paymentHistoryLoading && <div className="po-operation-search-empty">{history.length || transferHistory.length || paymentHistory.length ? "لا توجد نتائج مطابقة للبحث." : "لا توجد عمليات لعرضها. اختر فترة واضغط بحث."}</div>}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -274,7 +1540,29 @@ export default function PublicOrder() {
               <CheckCircle className="mx-auto text-green-500" size={48}/>
               <div className="font-bold text-lg mt-2">تم تنفيذ طلبك بنجاح</div>
             </div>
-            {selectedCat && <div className="text-center text-sm bg-slate-50 py-2 rounded">فئة الكرت: <span className="font-bold gold-text">{selectedCat.name}</span></div>}
+            {selectedCat && <div className="text-center text-sm bg-[#F8F7FC] py-2 rounded">فئة الكرت: <span className="font-bold gold-text">{selectedCat.name}</span></div>}
+            {result.recipient_phone && (
+              <div className="text-center text-sm bg-amber-50 border border-amber-200 py-2 rounded flex flex-col items-center gap-1" data-testid="po-result-recipient">
+                <div className="flex items-center gap-2">
+                  <Send size={14} className="text-amber-700"/>
+                  <span>تم التحويل إلى: <span className="font-mono font-bold text-amber-800">{result.recipient_phone}</span></span>
+                </div>
+                {result.recipient_name && (
+                  <div className="text-xs text-amber-900 flex items-center gap-1" data-testid="po-result-recipient-name">
+                    <ContactRound size={12}/> {result.recipient_name}
+                  </div>
+                )}
+              </div>
+            )}
+            {result.recipient_phone && result.cards?.length > 0 && (
+              <Button
+                onClick={() => sendCardSms(result.recipient_phone, result.cards, selectedCat?.name)}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="po-send-sms"
+              >
+                <MessageSquare size={16} className="ml-1"/> إرسال الكرت رسالة نصية إلى {result.recipient_phone}
+              </Button>
+            )}
             {result.cards?.length > 0 && (
               <Card className="p-3 bg-green-50">
                 <div className="text-sm font-bold mb-2">الكروت المطلوبة:</div>
@@ -292,78 +1580,766 @@ export default function PublicOrder() {
               <div className="text-slate-500">المديونية بعد العملية</div>
               <div className="text-2xl font-bold num">{fmt(result.balance_after)}</div>
             </div>
-            <Button onClick={() => { setResult(null); setCategoryId(""); setQuantity(1); setSelectedCat(null); }} variant="outline" className="w-full">طلب جديد</Button>
+            <Button onClick={() => { setResult(null); setCategoryId(""); setQuantity(1); setSelectedCat(null); setSendToOther(false); setRecipientPhone(""); setRecipientName(""); }} variant="outline" className="w-full">طلب جديد</Button>
           </div>
         )}
+
+        <Dialog open={!!favoriteOffer} onOpenChange={(open) => { if (!open) setFavoriteOffer(null); }}>
+          <DialogContent className="po-dialog-surface po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-sm rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-5" data-testid="po-favorite-offer">
+            <DialogHeader><DialogTitle className="text-center text-xl font-black text-[#221340]">حفظ الرقم في المفضلة</DialogTitle></DialogHeader>
+            <div className="space-y-4 text-center">
+              <div className="rounded-2xl border border-[#D9CBE8] bg-white p-3 text-sm text-[#221340]">
+                <div>تمت العملية بنجاح.</div>
+                <div className="mt-1 text-[#6B6278]">هل تريد إضافة الرقم إلى المفضلة لاستخدامه لاحقاً؟</div>
+                <div className="mt-2 font-mono font-black text-[#452480]" dir="ltr">{favoriteOffer?.phone}</div>
+              </div>
+              {favoriteOffer?.manualName ? (
+                <div className="space-y-1 text-right">
+                  <Label htmlFor="po-favorite-offer-name" className="font-bold text-[#221340]">اكتب اسم الحساب للمفضلة</Label>
+                  <Input
+                    id="po-favorite-offer-name"
+                    value={favoriteOffer?.name || ""}
+                    onChange={(event) => setFavoriteOffer((current) => current ? { ...current, name: event.target.value } : current)}
+                    placeholder="مثال: أحمد محمد"
+                    autoFocus
+                    data-testid="po-favorite-offer-name"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-xl border border-[#D9CBE8] bg-[#F8F7FC] p-3 text-right font-bold text-[#221340]" data-testid="po-favorite-offer-account-name">
+                  اسم الحساب: {favoriteOffer?.name || "غير متوفر"}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" onClick={confirmFavoriteOffer} disabled={favoriteOffer?.manualName && !favoriteOffer?.name?.trim()} className="rounded-xl bg-[#221340] font-black hover:bg-[#311B5C]" data-testid="po-favorite-offer-confirm">نعم، حفظ الرقم</Button>
+                <Button type="button" variant="outline" onClick={() => setFavoriteOffer(null)} className="rounded-xl" data-testid="po-favorite-offer-cancel">ليس الآن</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </Card>
 
-      <Dialog open={showForgot} onOpenChange={setShowForgot}>
-        <ForgotPasswordForm onClose={() => setShowForgot(false)}/>
+      <Dialog open={showDirectPurchase && !customer} onOpenChange={setShowDirectPurchase}>
+        <DialogContent dir="rtl" className="po-direct-purchase-dialog" data-testid="po-direct-purchase-dialog">
+          <DialogTitle className="sr-only">شراء كرت نت</DialogTitle>
+          <DirectCardPurchaseFlow embedded onLogin={() => setShowDirectPurchase(false)} onRegister={() => { setShowDirectPurchase(false); setAuthTab("register"); }} />
+        </DialogContent>
       </Dialog>
-      <Dialog open={showRegister} onOpenChange={setShowRegister}>
-        <RegisterForm onClose={() => setShowRegister(false)}/>
+
+      <Dialog open={showPortalCategoryPicker && !!customer} onOpenChange={setShowPortalCategoryPicker}>
+        <DialogContent dir="rtl" className="po-dialog-surface po-net-choice-dialog" data-testid="po-category-dialog">
+          <DialogHeader className="po-net-choice-header"><DialogTitle className="flex items-center gap-2 text-right text-lg font-black text-[#221340]"><WalletCards size={20} className="text-[#452480]" /> اختر فئة الكرت</DialogTitle></DialogHeader>
+          <div className="grid gap-2" data-testid="po-category-options">
+            {cats.map((category) => {
+              const categoryPrice = priceForCustomer(category, ctype);
+              const selected = category.id === category_id;
+              return <button type="button" key={category.id} onClick={() => { setCategoryId(category.id); setQuantity(1); setShowPortalCategoryPicker(false); }} className={`po-net-choice-option ${selected ? "is-selected" : ""}`} data-testid={`po-category-option-${category.id}`}>
+                <span className="min-w-0 flex-1 text-right"><span className="block break-words whitespace-normal font-black leading-5">{category.name}</span><span className="mt-1 block break-words text-xs leading-5 text-[#6B5A80]">قيمة الكرت: {fmt(categoryPrice)} ريال</span></span>
+                <span className={`po-net-choice-check ${selected ? "is-selected" : ""}`}>{selected ? "✓" : ""}</span>
+              </button>;
+            })}
+            {!cats.length && <div className="rounded-2xl bg-[#F8F7FC] p-4 text-center text-sm text-[#6B5A80]">لا توجد فئات كروت متاحة حالياً</div>}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {customer && (
+        <nav dir="ltr" className="po-bottom-dock mt-5 grid grid-cols-4 gap-1 rounded-[1.7rem] bg-gradient-to-l from-[#221340] to-[#452480] px-2 py-2.5 text-white shadow-[0_12px_26px_rgba(34,19,64,0.22)]" data-testid="po-bottom-nav" aria-label="خدمات بوابة العميل">
+          <button dir="rtl" type="button" onClick={() => { setShowAccountInfo(true); setShowHistory(false); setShowTransferHistory(false); setShowAllOperations(false); setShowFavorites(false); setShowNotifs(false); }} className={`flex flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[10px] font-bold transition hover:bg-white/10 hover:text-white ${showAccountInfo ? "bg-[#D4AF37] text-[#1A0F33]" : "text-white/75"}`} title="عرض بيانات الحساب وتغيير كلمة المرور" aria-label="عرض بيانات الحساب"><UserRound size={22}/><span>الحساب</span></button>
+          <button dir="rtl" type="button" onClick={() => { setShowFavorites(true); setShowHistory(false); setShowTransferHistory(false); setShowAllOperations(false); setShowAccountInfo(false); setShowNotifs(false); }} className={`flex flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[10px] font-bold transition hover:bg-white/10 hover:text-white ${showFavorites ? "bg-[#D4AF37] text-[#1A0F33]" : "text-white/75"}`} title={canTransfer ? "إرسال رصيد إلى رقم مفضل" : "إرسال كرت إلى رقم مفضل"} aria-label="عرض الأرقام المضافة إلى المفضلة"><Heart size={22}/><span>المفضلة</span></button>
+          <button dir="rtl" type="button" onClick={() => { setMode("card"); setShowAllOperations(true); setShowHistory(false); setShowTransferHistory(false); setShowAccountInfo(false); setShowFavorites(false); setShowNotifs(false); }} className={`flex flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[10px] font-bold transition hover:bg-white/10 hover:text-white ${showAllOperations ? "bg-[#D4AF37] text-[#1A0F33]" : "text-white/75"}`} title="عرض كل الطلبات والعمليات السابقة" aria-label="عرض كل الطلبات والعمليات السابقة"><History size={22}/><span>العمليات</span></button>
+          <button dir="rtl" type="button" onClick={() => { setMode("card"); setShowHistory(false); setShowTransferHistory(false); setShowAllOperations(false); setShowAccountInfo(false); setShowFavorites(false); setShowNotifs(false); }} className={`flex flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[10px] font-bold transition hover:bg-white/10 hover:text-white ${mode === "card" && !showHistory && !showAllOperations && !showAccountInfo && !showFavorites && !showNotifs ? "bg-[#D4AF37] text-[#1A0F33]" : "text-white/75"}`} title="فتح واجهة شراء كرت" aria-label="فتح واجهة شراء كرت"><Home size={22}/><span>الرئيسية</span></button>
+        </nav>
+      )}
+      </div>
+
+      <Dialog open={showAccountNotFound} onOpenChange={setShowAccountNotFound}>
+          <DialogContent dir="rtl" className="po-dialog-surface po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-sm rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-5" data-testid="po-account-not-found-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-center text-xl font-black text-[#221340]">الحساب غير موجود</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-center">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <div className="font-black">لا تمتلك حساباً بهذا الرقم</div>
+              <div className="mt-1 leading-6">قم بإنشاء حساب الآن باستخدام نفس الرقم المسجل.</div>
+              <div className="mt-2 font-mono font-black" dir="ltr">{phone || "-"}</div>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                onClick={() => { setShowAccountNotFound(false); setAccountNotFound(false); setAuthTab("register"); }}
+                className="rounded-xl bg-[#452480] font-black text-white hover:bg-[#311B5C]"
+                data-testid="po-create-account-from-login"
+              >
+                إنشاء حساب بهذا الرقم
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setShowAccountNotFound(false)} className="rounded-xl" data-testid="po-close-account-not-found">
+                إغلاق
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showForgot} onOpenChange={setShowForgot}>
+        <ForgotPasswordForm onClose={() => setShowForgot(false)} recoveryMethod={recoveryMethod} onRecoveryMethodChange={setRecoveryMethod}/>
       </Dialog>
       <Dialog open={showChangePwd} onOpenChange={setShowChangePwd}>
         <ChangePasswordForm phone={phone} currentPassword={password} onClose={() => setShowChangePwd(false)} onDone={(np) => setPassword(np)}/>
+      </Dialog>
+      <Dialog open={showPortalBanks} onOpenChange={setShowPortalBanks}>
+        <DialogContent dir="rtl" className="po-dialog-surface po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-md rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-4 sm:p-6" data-testid="po-portal-banks-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#221340]"><Landmark size={18} className="text-[#452480]"/> الحسابات البنكية وطرق السداد</DialogTitle>
+          </DialogHeader>
+          {portalBanks.length > 0 ? (
+            <div className="space-y-3">
+              {portalBanks.map((bank) => (
+                <PaymentAccountCard
+                  key={bank.id || `${bank.bank_name}-${bank.account_number}`}
+                  account={bank}
+                  onCopy={copyBankValue}
+                  onInstructionImage={(account) => { setShowPortalBanks(false); setInstructionImageAccount(account); }}
+                  onConfirm={(account) => { setShowPortalBanks(false); openPaymentConfirmation(account.id); }}
+                  testidPrefix="po-portal-bank"
+                  confirmTestid={`po-open-payment-confirmation-${bank.id}`}
+                />
+              ))}
+              <div className="text-[11px] leading-5 text-slate-500">استخدم بيانات الحساب الظاهرة هنا فقط، واحتفظ بإشعار التحويل للرجوع إليه عند الحاجة.</div>
+            </div>
+          ) : <div className="rounded-2xl border border-dashed border-[#D9CBE8] bg-white px-3 py-5 text-center text-xs leading-6 text-slate-500" data-testid="po-portal-banks-empty">لا توجد حسابات بنكية أو محافظ مفعّلة للعرض حالياً.</div>}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!instructionImageAccount} onOpenChange={(open) => { if (!open) setInstructionImageAccount(null); }}>
+        <DialogContent dir="rtl" className="po-dialog-surface po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-2xl max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-[1.5rem] bg-white p-4 sm:p-6" data-testid="po-payment-instruction-image-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-[#221340]">تعليمات السداد — {instructionImageAccount?.bank_name || "الحساب"}</DialogTitle>
+          </DialogHeader>
+          {instructionImageAccount && <img src={paymentInstructionImageUrl(instructionImageAccount, "display")} alt={`تعليمات السداد ${instructionImageAccount.bank_name || ""}`} loading="eager" decoding="async" fetchPriority="high" width="800" height="800" className="max-h-[calc(100dvh-10rem)] w-full rounded-2xl border border-[#D9CBE8] bg-white object-contain p-2" data-testid="po-payment-instruction-image" />}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showPaymentConfirmation} onOpenChange={setShowPaymentConfirmation}>
+        <DialogContent dir="rtl" className="po-dialog-surface po-form-dialog po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-4 sm:p-6" data-testid="po-payment-confirmation-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#221340]"><CheckCircle size={18} className="text-[#452480]" /> تأكيد عملية دفع</DialogTitle>
+          </DialogHeader>
+          {!paymentConfirmationResult ? (
+            <form onSubmit={submitPaymentConfirmation} className="space-y-3" data-testid="po-payment-confirmation-form">
+              <div className="space-y-1.5">
+                <Label className="font-bold text-[#221340]">حساب السداد</Label>
+                {(() => {
+                  const bank = portalBanks.find((item) => item.id === paymentConfirmation.bank_account_id);
+                  return bank ? (
+                    <div data-testid="po-payment-selected-bank">
+                      <PaymentAccountCard
+                        account={bank}
+                        onCopy={copyBankValue}
+                        onInstructionImage={(account) => { setShowPaymentConfirmation(false); setInstructionImageAccount(account); }}
+                        selected
+                        showDetails
+                        detailsLabel="تعليمات السداد"
+                        numberCopyTestid="po-payment-selected-bank-number-copy"
+                        testidPrefix="po-payment-selected-bank-card"
+                      />
+                    </div>
+                  ) : <div className="rounded-2xl border border-[#D9CBE8] bg-white px-3 py-3 text-sm font-black" data-testid="po-payment-selected-bank">لم يتم اختيار حساب السداد من بطاقته</div>;
+                })()}
+              </div>
+              <div className="space-y-1.5">
+                <Label className="font-bold text-[#221340]">مبلغ السداد</Label>
+                <Input type="number" min="0.01" step="0.01" inputMode="decimal" value={paymentConfirmation.amount} onChange={(event) => setPaymentConfirmation((current) => ({ ...current, amount: event.target.value }))} className="h-14 rounded-2xl border-[#DDD8E7] bg-white shadow-none" data-testid="po-payment-amount" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="font-bold text-[#221340]">رقم مرجع العملية</Label>
+                <Input
+                  value={paymentConfirmation.payment_reference}
+                  onChange={(event) => setPaymentConfirmation((current) => ({ ...current, payment_reference: event.target.value, verification_method: "reference", sms_text: "" }))}
+                  inputMode="numeric"
+                  dir="ltr"
+                  maxLength={32}
+                  placeholder="ادخل رقم العملية او مرجع العملية"
+                  className="h-14 rounded-2xl border-[#DDD8E7] bg-white text-left shadow-none"
+                  data-testid="po-payment-reference"
+                />
+                <div className="text-[11px] leading-5 text-[#6B5A80]">أدخل رقم المرجع الظاهر في إشعار نجاح الإيداع كما هو.</div>
+              </div>
+              <Button type="submit" disabled={paymentConfirmationSubmitting || !portalBanks.length} className="h-14 w-full rounded-2xl bg-[#452480] font-black text-white hover:bg-[#5A2FA0]" data-testid="po-submit-payment-confirmation">
+                {paymentConfirmationSubmitting ? "جارٍ إرسال الطلب..." : "إرسال طلب التأكيد"}
+              </Button>
+            </form>
+          ) : (
+            <div className="space-y-3" data-testid="po-payment-confirmation-result" data-status={paymentStatus}>
+              {paymentBlocked ? (
+                <div className="rounded-2xl border border-red-200 border-t-2 border-t-red-600 bg-red-50 p-4 text-center" data-testid="po-payment-confirmation-blocked" role="alert">
+                  <Ban size={36} className="mx-auto mb-2 text-red-600" />
+                  <div className="font-black text-red-900">تم إيقاف حساب السداد</div>
+                  <div className="mt-2 text-sm leading-6 text-red-800">تجاوزت 10 محاولات خاطئة. تواصل مع خدمة العملاء لفك الإيقاف.</div>
+                  <Button type="button" onClick={() => openWhatsApp(ADMIN_WHATSAPP, `مرحباً، تم إيقاف حساب السداد بعد محاولات تأكيد دفع خاطئة. رقم الهاتف: ${phone}`)} className="mt-4 h-11 w-full rounded-xl bg-green-600 font-black text-white hover:bg-green-700" data-testid="po-payment-confirmation-contact-support"><Phone size={15} className="ml-1" /> التواصل مع خدمة العملاء</Button>
+                </div>
+              ) : paymentStatus === "rejected" ? (
+                <div className="rounded-2xl border border-red-200 border-t-2 border-t-red-500 bg-red-50 p-4 text-center" data-testid="po-payment-confirmation-rejected" role="alert">
+                  <XCircle size={36} className="mx-auto mb-2 text-red-600" />
+                  <div className="font-black text-red-900">تعذر اعتماد طلب تأكيد الدفع</div>
+                  <div className="mt-2 rounded-xl bg-white/80 p-3 text-right text-xs leading-6 text-red-800"><span className="font-bold">السبب: </span>{paymentFailureReason}</div>
+                  {paymentGatewayFailureMessage && <div className="mt-2 rounded-xl border border-red-100 bg-white/80 p-3 text-right text-[11px] leading-5 text-red-800"><div className="mb-1 font-bold">نص رسالة Gateway كما وصل:</div><div className="whitespace-pre-wrap break-words font-mono" dir="auto">{paymentGatewayFailureMessage}</div></div>}
+                  <div className="mt-2 text-[11px] leading-5 text-red-700">تأكد من صحة البيانات وأعد المحاولة.</div>
+                </div>
+              ) : paymentStatus === "approved" ? (
+                <div className="rounded-2xl border border-emerald-200 border-t-2 border-t-emerald-500 bg-emerald-50 p-4 text-center" data-testid="po-payment-confirmation-approved">
+                  <CheckCircle size={36} className="mx-auto mb-2 text-emerald-600" />
+                  <div className="font-black text-emerald-900">تمت الموافقة على طلب تأكيد الدفع</div>
+                  <div className="mt-2 text-sm font-black text-emerald-800">المبلغ المتحقق: {fmt(paymentConfirmationResult.amount || paymentConfirmation.amount)} ريال</div>
+                  {paymentConfirmationResult.receipt_number && <div className="mt-1 text-xs text-emerald-700">رقم سند القبض: <strong dir="ltr">{paymentConfirmationResult.receipt_number}</strong></div>}
+                  {paymentConfirmationResult.payment_reference && <div className="mt-1 break-words text-xs text-emerald-700">مرجع العملية: <strong dir="ltr">{paymentConfirmationResult.payment_reference}</strong></div>}
+                  {paymentEffectPosted ? (
+                    <div className="mt-2 rounded-xl bg-white/80 p-3 text-xs font-bold leading-6 text-emerald-800">تمت إضافة المبلغ إلى حسابك بنجاح.</div>
+                  ) : (
+                    <div className="mt-2 rounded-xl bg-white/80 p-3 text-xs leading-6 text-emerald-800">تم التحقق والموافقة، والأثر المالي قيد إكمال التسجيل المحاسبي.</div>
+                  )}
+                  {paymentConfirmationResult.balance_after !== undefined && paymentConfirmationResult.balance_after !== null && <div className="mt-2 text-xs text-emerald-700">الرصيد بعد الإضافة: <strong>{fmt(paymentConfirmationResult.balance_after)} ريال</strong></div>}
+                </div>
+              ) : paymentStatus === "manual_review" ? (
+                <div className="rounded-2xl border border-amber-200 border-t-2 border-t-amber-500 bg-amber-50 p-4 text-center" data-testid="po-payment-confirmation-manual-review" role="status" aria-live="polite">
+                  <AlertCircle size={36} className="mx-auto mb-2 text-amber-600" />
+                  <div className="font-black text-amber-900">العملية قيد المراجعة اليدوية</div>
+                  <div className="mt-2 text-xs leading-6 text-amber-800">لم تكتمل المطابقة الآلية. ستظهر نتيجة المراجعة في هذه النافذة تلقائياً.</div>
+                  {paymentConfirmationResult.review_reason && <div className="mt-2 rounded-xl bg-white/80 p-3 text-right text-[11px] leading-5 text-amber-800"><span className="font-bold">السبب أو الملاحظة: </span>{paymentConfirmationResult.review_reason}</div>}
+                </div>
+              ) : ["matched", "posting"].includes(paymentStatus) ? (
+                <div className="rounded-2xl border border-blue-200 border-t-2 border-t-blue-500 bg-blue-50 p-4 text-center" data-testid="po-payment-confirmation-matched" role="status" aria-live="polite">
+                  <span className="po-payment-progress-ring mx-auto mb-2" aria-hidden="true" />
+                  <div className="font-black text-blue-900">يرجى الانتظار، العملية قيد المراجعة</div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-[#D9CBE8] border-t-2 border-t-[#D4AF37] bg-white p-4 text-center" data-testid="po-payment-confirmation-pending" role="status" aria-live="polite">
+                  <Clock3 size={36} className="mx-auto mb-2 text-[#452480]" />
+                  <div className="font-black text-[#221340]">يرجى الانتظار، العملية قيد المراجعة</div>
+                  {paymentConfirmationWaitExpired && <div className="mt-2 rounded-xl bg-[#F8F7FC] p-3 text-xs leading-6 text-[#6B5A80]" data-testid="po-payment-confirmation-response-timeout">انتهت مهلة الاستجابة، أعد المحاولة.</div>}
+                </div>
+              )}
+              {!['approved', 'rejected'].includes(paymentStatus) && (
+                <Button type="button" onClick={refreshPaymentConfirmationNow} disabled={paymentConfirmationRefreshing} variant="outline" className="w-full rounded-2xl border-[#3B82F6] text-[#245C9D]" data-testid="po-payment-confirmation-refresh">
+                  <Clock3 size={15} className="ml-1" /> {paymentConfirmationRefreshing ? "جارٍ تحديث الحالة..." : "تحديث الحالة الآن"}
+                </Button>
+              )}
+              {paymentStatus === "rejected" && (
+                <Button type="button" onClick={() => { setPaymentConfirmationResult(null); setPaymentConfirmation((current) => ({ ...current, amount: "", payment_reference: "", sms_text: "" })); }} variant="outline" className="w-full rounded-2xl border-[#452480] text-[#452480]" data-testid="po-payment-confirmation-new">إرسال طلب آخر</Button>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showStmtDialog} onOpenChange={setShowStmtDialog}>
+        <DialogContent className="po-dialog-surface po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-md rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-4 sm:p-6" data-testid="po-stmt-dialog">
+          <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#221340]"><FileText size={18}/> طباعة كشف الحساب</DialogTitle></DialogHeader>
+          <StatementPeriodPicker
+            onCancel={() => setShowStmtDialog(false)}
+            onPrint={(s, e) => runPrintStatement({ start: s, end: e })}
+            loading={printingStmt}
+            submitLabel="طباعة"
+            submitIcon={<Printer size={14} className="ml-1"/>}
+          />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!statementPreview} onOpenChange={(open) => { if (!open) setStatementPreview(null); }}>
+        <DialogContent className="po-dialog-surface po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-3xl max-h-[92vh] overflow-y-auto rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-2 sm:p-5" data-testid="po-stmt-preview-dialog">
+          <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#221340]"><FileText size={18}/> معاينة كشف الحساب</DialogTitle></DialogHeader>
+          {statementPreview && <StatementPreview data={statementPreview} onClose={() => setStatementPreview(null)} />}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showNotifs} onOpenChange={setShowNotifs}>
+        <DialogContent dir="rtl" className="po-dialog-surface po-portal-scroll-dialog po-notifs-surface po-notifs-dialog-content w-[calc(100vw-1rem)] max-w-md max-h-[85vh] overflow-y-auto rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-4 sm:p-6" data-testid="po-notifs-dialog">
+          <div className="po-notifs-hero" data-testid="po-notifs-header">
+            <div className="po-notifs-hero-icon"><Bell size={21}/></div>
+            <div className="min-w-0 flex-1 text-right"><DialogTitle className="text-xl font-black text-[#1B0F35]" data-testid="po-notifs-title">مركز الإشعارات</DialogTitle><div className="mt-1 text-xs text-[#8A7FA6]">آخر التنبيهات الخاصة بحسابك</div></div>
+            {notifUnread > 0 && <span className="po-notifs-count">{notifUnread} جديد</span>}
+          </div>
+          <div className="po-notifs-list" data-testid="po-notifs-list" role="list">
+            {notifs.length === 0 && <div className="po-notifs-empty"><Bell size={28}/><span>لا توجد إشعارات حالياً</span></div>}
+            {notifs.map((n) => (
+              <button key={n.id} type="button" onClick={() => openNotifAction(n)} className={`po-notif-item ${n.read ? "po-notif-read" : "po-notif-unread"}`} data-testid={`po-notif-${n.id}`} role="listitem" aria-label={n.title}>
+                <span className="po-notif-item-icon" aria-hidden="true"><Bell size={16}/></span>
+                <span className="po-notif-item-body">
+                  <span className="po-notif-item-head"><span className="po-notif-item-title">{n.title}</span>{!n.read && <span className="po-notif-new">جديد</span>}</span>
+                  <span className="po-notif-item-message">{n.message}</span><span className="mt-1 flex flex-wrap items-center gap-2"><CopyButton text={n.message} label="نسخ الرسالة" testid={`po-copy-notif-${n.id}`} />{extractPassword(n.message) ? <CopyButton text={extractPassword(n.message)} label="نسخ كلمة المرور" successMessage="تم نسخ كلمة المرور" testid={`po-copy-pwd-${n.id}`} /> : null}</span>
+                  <span className="po-notif-item-date">{fmtDate(n.created_at)}</span>
+                  {(n.details?.document?.type === "sale" || n.details?.document?.type === "receipt") && (
+                    <span className="mt-2 inline-flex w-fit items-center gap-1 rounded-full bg-[#FFF8E5] px-2.5 py-1 text-[11px] font-black text-[#8A6412]">
+                      <FileText size={12}/>{n.details.document.type === "receipt" ? "عرض السند والطباعة" : "عرض الفاتورة والطباعة"}
+                    </span>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!popupNotif} onOpenChange={(open) => { if (!open) setPopupNotif(null); }}>
+        <DialogContent hideClose dir="rtl" className="po-dialog-surface po-customer-notification-popup po-balance-card-surface w-[calc(100vw-1rem)] max-w-md rounded-[1.75rem] p-5 sm:p-6" data-testid="po-customer-notification-popup">
+          <div className="po-customer-notification-header border-b pb-4 pl-8">
+            <DialogTitle className="po-customer-notification-title text-xl font-black leading-8" data-testid="po-customer-notification-title">{popupNotif?.title || "إشعار جديد"}</DialogTitle>
+          </div>
+          <div className="mt-4 whitespace-pre-line break-words rounded-2xl border border-[#D7E2EF] bg-[#F5F8FC] p-4 text-base font-semibold leading-8 text-[#243B5A]" data-testid="po-customer-notification-message">{popupNotif?.message}</div>
+          <div className="mt-4 flex justify-end">
+            <Button type="button" onClick={() => setPopupNotif(null)} className="h-11 rounded-xl bg-[#245C9D] px-8 font-black text-white hover:bg-[#1D4E86]" data-testid="po-close-customer-notification-button">إغلاق</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!notifDocument} onOpenChange={(open) => { if (!open) setNotifDocument(null); }}>
+        <DialogContent dir="rtl" className="po-dialog-surface po-portal-scroll-dialog po-document-preview-dialog w-[calc(100vw-1rem)] max-w-lg max-h-[90vh] overflow-y-auto rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-4 sm:p-6" data-testid="po-notification-document-preview">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#221340]">
+              <FileText size={18}/>{notifDocument?.document?.type === "receipt" ? "معاينة السند" : "معاينة الفاتورة"}
+            </DialogTitle>
+          </DialogHeader>
+          {notifDocument?.document?.type === "sale" && notifDocument.document.sale && (
+            <div className="space-y-3 text-sm text-[#221340]">
+              <div className="rounded-2xl border border-[#E5DDF0] border-t-2 border-t-[#D4AF37] bg-white p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="font-black">فاتورة مبيعات — {notifDocument.document.sale.number || "-"}</div>
+                  <div className="text-xs text-[#8A7FA6]">{fmtDate(notifDocument.document.sale.created_at)}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                  <div><span className="text-[#8A7FA6]">الحساب: </span><strong>{notifDocument.document.customer?.name || notifDocument.document.sale.customer_name || "-"}</strong></div>
+                  <div><span className="text-[#8A7FA6]">الهاتف: </span><strong dir="ltr">{notifDocument.document.customer?.phone || "-"}</strong></div>
+                  <div><span className="text-[#8A7FA6]">النوع: </span><strong>{notifDocument.document.sale.invoice_payment_label || (notifDocument.document.sale.sale_type === "cash" ? "نقدي" : "آجل")}</strong></div>
+                  <div><span className="text-[#8A7FA6]">المستلم: </span><strong dir="ltr">{notifDocument.document.sale.recipient_phone || "نفس الحساب"}</strong></div>
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded-2xl border border-[#E5DDF0] bg-white">
+                <table className="w-full min-w-[420px] text-xs">
+                  <thead className="bg-[#1B0F35] text-white"><tr><th className="p-2 text-right">الفئة / البيان</th><th className="p-2">الكمية</th><th className="p-2">السعر</th><th className="p-2">الإجمالي</th></tr></thead>
+                  <tbody>
+                    {(notifDocument.document.sale.items || []).map((item, index) => (
+                      <tr key={`${item.category_id || item.category_name || "item"}-${index}`} className="border-t border-[#EEEAF5]">
+                        <td className="p-2 font-semibold">{item.category_name || "-"}{(item.card_numbers || []).length > 0 && <div className="mt-1 font-mono text-[10px] text-[#8A7FA6]">{item.card_numbers.join("، ")}</div>}</td>
+                        <td className="p-2 text-center">{item.quantity ?? 0}</td><td className="p-2 text-center">{fmt(item.price)}</td><td className="p-2 text-center font-bold">{fmt(item.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="rounded-2xl border border-[#E5DDF0] bg-white p-3 text-sm">
+                <div className="flex justify-between border-b border-[#EEEAF5] py-1"><span>الإجمالي</span><strong>{fmt(notifDocument.document.sale.subtotal)}</strong></div>
+                <div className="flex justify-between border-b border-[#EEEAF5] py-1"><span>الخصم</span><strong>{fmt(notifDocument.document.sale.discount)}</strong></div>
+                <div className="flex justify-between border-b border-[#EEEAF5] py-1"><span>المدفوع</span><strong>{fmt(notifDocument.document.sale.paid)}</strong></div>
+                <div className="flex justify-between py-1 font-black text-[#8A6412]"><span>المتبقي</span><strong>{fmt(notifDocument.document.sale.remaining)}</strong></div>
+              </div>
+              <Button type="button" onClick={printNotifDocument} className="w-full bg-[#1B0F35] text-white hover:bg-[#2A1A49]" data-testid="po-notification-print-button"><Printer size={16} className="ml-2"/> طباعة الفاتورة</Button>
+            </div>
+          )}
+          {notifDocument?.document?.type === "receipt" && notifDocument.document.receipt && (
+            <div className="space-y-3 text-sm text-[#221340]">
+              <div className="rounded-2xl border border-[#E5DDF0] border-t-2 border-t-[#D4AF37] bg-white p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="font-black">{notifDocument.document.receipt.kind === "receipt" ? "سند قبض" : "سند صرف"} — {notifDocument.document.receipt.number || "-"}</div>
+                  <div className="text-xs text-[#8A7FA6]">{fmtDate(notifDocument.document.receipt.created_at)}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                  <div><span className="text-[#8A7FA6]">الحساب: </span><strong>{notifDocument.document.party?.name || notifDocument.document.receipt.party_name || "-"}</strong></div>
+                  <div><span className="text-[#8A7FA6]">الهاتف: </span><strong dir="ltr">{notifDocument.document.party?.phone || "-"}</strong></div>
+                  <div><span className="text-[#8A7FA6]">المبلغ: </span><strong>{fmt(notifDocument.document.receipt.amount)}</strong></div>
+                  <div><span className="text-[#8A7FA6]">الرصيد بعد السند: </span><strong>{fmt(notifDocument.document.receipt.balance_after)}</strong></div>
+                </div>
+              </div>
+              {notifDocument.document.receipt.description && <div className="rounded-2xl border border-[#E5DDF0] bg-white p-4"><div className="mb-1 text-xs font-bold text-[#8A7FA6]">البيان</div><div className="whitespace-pre-wrap">{notifDocument.document.receipt.description}</div></div>}
+              <Button type="button" onClick={printNotifDocument} className="w-full bg-[#1B0F35] text-white hover:bg-[#2A1A49]" data-testid="po-notification-print-button"><Printer size={16} className="ml-2"/> طباعة السند</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showFavorites} onOpenChange={setShowFavorites}>
+          <DialogContent className="po-dialog-surface po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-md max-h-[85vh] overflow-y-auto rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-4 sm:p-6" data-testid="po-favorites-dialog">
+          <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#221340]"><Heart size={18}/> الأرقام المفضلة</DialogTitle></DialogHeader>
+          <PortalFavoritesPanel list={portalFavorites} canTransfer={canTransfer} onRemove={(items) => savePortalFavorites(items)} onSendCard={sendCardToFavorite} onSendBalance={sendBalanceToFavorite}/>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showIncentives} onOpenChange={setShowIncentives}>
+        <DialogContent className="po-dialog-surface po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-md max-h-[85vh] overflow-y-auto rounded-[1.5rem] border-[#E5DDF0] bg-[#F8F7FC] p-4 sm:p-6" data-testid="po-incentives-dialog">
+          <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#221340]"><Gift size={18}/> الحوافز</DialogTitle></DialogHeader>
+          {!incentives.enabled && (incentives.history || []).length === 0 && (
+            <div className="text-center p-6 text-slate-500 text-sm">لا توجد حوافز حالياً</div>
+          )}
+          {(incentives.enabled || (incentives.history || []).length > 0) && (
+            <div className="space-y-2">
+              {(incentives.categories || []).length === 0 && incentives.enabled && (
+                <div className="text-center p-4 text-slate-400 text-sm">لا توجد قواعد حوافز نشطة حالياً</div>
+              )}
+              {(incentives.categories || []).map((row) => (
+                <Card key={row.category_id} className={`p-3 border ${row.pending_qty > 0 ? "border-amber-400 bg-amber-50" : "border-[#E5DDF0]"}`} data-testid={`po-inc-row-${row.category_id}`}>
+                  <div className="flex justify-between items-center">
+                    <div className="font-bold text-[#221340]">{row.category_name}</div>
+                    {row.pending_qty > 0 && <span className="bg-amber-500 text-white text-xs rounded-full px-2 py-0.5 font-bold">🎁 {row.pending_qty}</span>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+                    <div className="text-center bg-white rounded p-2">
+                      <div className="text-[11px] text-slate-500">الكروت المشتراة</div>
+                      <div className="font-bold text-lg">{row.bought}</div>
+                    </div>
+                    <div className="text-center bg-white rounded p-2">
+                      <div className="text-[11px] text-slate-500">المتبقي للحافز</div>
+                      <div className="font-bold text-lg text-amber-700">{row.remaining_for_next}</div>
+                    </div>
+                  </div>
+                  {row.pending_qty > 0 && (
+                    <Button size="sm" onClick={() => redeemIncentive(row, "card")} className="w-full mt-2 bg-[#D4AF37] text-[#1A0F33] hover:bg-[#C5A028]" data-testid={`po-inc-r-card-${row.category_id}`}>استلم كروت</Button>
+                  )}
+                </Card>
+              ))}
+              {(incentives.history || []).length > 0 && (
+                <div className="pt-2 border-t">
+                  <div className="text-sm font-bold text-[#221340] mb-2">السجل السابق</div>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {(incentives.history || []).map((h) => (
+                      <div key={h.id} className="text-xs bg-[#F8F7FC] rounded p-2 flex justify-between" data-testid={`po-inc-hist-${h.id}`}>
+                        <div><span className="font-bold">{h.category_name}</span> × {h.qty}</div>
+                        <div className="text-slate-500">{fmtDate(h.redeemed_at)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function ForgotPasswordForm({ onClose }) {
+function RecipientPhoneField({ value, currentName = "", onChange, onNameChange = () => {}, cloudItems, onCloudChange, favoritePrefix, phoneTestId, contactTestId }) {
+  return (
+    <div className="po-recipient-phone-row" data-testid={`${phoneTestId}-row`}>
+      <div className="po-recipient-input-shell">
+        <Input
+          type="tel"
+          inputMode="tel"
+          placeholder="أدخل رقم الهاتف"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          data-testid={phoneTestId}
+          className="po-recipient-phone-input"
+        />
+        <div className="po-recipient-input-actions" aria-label="أدوات رقم الهاتف">
+          <SubscriberFavorites
+            currentPhone={value}
+            currentName={currentName}
+            onPick={(favorite) => { onChange(favorite.phone); onNameChange(favorite.name || ""); }}
+            cloudItems={cloudItems}
+            onCloudChange={onCloudChange}
+            testidPrefix={favoritePrefix}
+          />
+          <ContactPickerButton
+            onPick={(contact) => { onChange(contact.phone); onNameChange(contact.name || ""); }}
+            testid={contactTestId}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OperationSearchField({ value, onChange }) {
+  return (
+    <div className="po-operation-search" data-testid="po-operation-search">
+      <Search size={17} aria-hidden="true" />
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="ابحث برقم العملية أو الاسم أو الرقم أو البيان"
+        aria-label="البحث في العمليات السابقة"
+        className="h-11 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+        data-testid="po-operation-search-input"
+      />
+      {value && (
+        <button type="button" onClick={() => onChange("")} className="po-operation-search-clear" aria-label="مسح البحث">
+          ×
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StatementPreview({ data, onClose }) {
+  const customer = data?.customer || {};
+  const entries = data?.entries || [];
+  const totalDebit = entries.reduce((sum, entry) => sum + Number(entry.debit || 0), 0);
+  const totalCredit = entries.reduce((sum, entry) => sum + Number(entry.credit || 0), 0);
+  const balance = Number(customer.balance || 0);
+  const balanceText = balance === 0 ? "0 ريال" : `${fmt(Math.abs(balance))} ريال ${balance > 0 ? "عليكم" : "لكم"}`;
+
+  return (
+    <div className="space-y-3" dir="rtl">
+      <div className="rounded-xl border border-[#E5DDF0] bg-white p-3 text-center shadow-sm" data-testid="po-stmt-preview-paper">
+        <div className="text-lg font-black text-[#221340]">{data.rangeTitle || `كشف حساب — ${customer.name || ""}`}</div>
+        <div className="mt-1 text-xs text-slate-500">كشف كامل للقراءة قبل الطباعة</div>
+        <div className="mt-3 grid grid-cols-1 gap-2 text-right text-xs min-[360px]:grid-cols-2 sm:grid-cols-4">
+          <div className="rounded-lg bg-[#F8F7FC] p-2"><div className="text-slate-500">اسم الحساب</div><div className="mt-1 font-bold">{customer.name || "-"}</div></div>
+          <div className="rounded-lg bg-[#F8F7FC] p-2"><div className="text-slate-500">نوع الحساب</div><div className="mt-1 font-bold">{String(customer.customer_type || "customer").toLowerCase() === "pos" ? "نقطة بيع" : "عميل"}</div></div>
+          <div className="rounded-lg bg-[#F8F7FC] p-2"><div className="text-slate-500">رقم الهاتف</div><div className="mt-1 font-mono font-bold" dir="ltr">{customer.phone || "-"}</div></div>
+          <div className="rounded-lg bg-[#F8F7FC] p-2"><div className="text-slate-500">الرصيد الحالي</div><div className={`mt-1 font-black ${balance > 0 ? "text-red-700" : balance < 0 ? "text-emerald-700" : "text-slate-700"}`}>{balanceText}</div></div>
+        </div>
+      </div>
+
+      <div className="space-y-2 md:hidden" data-testid="po-stmt-preview-mobile-list">
+        {entries.map((entry, index) => (
+          <article key={entry.id || `${entry.created_at}-${index}`} className="rounded-xl border border-[#E5DDF0] bg-white p-3 text-xs shadow-sm">
+            <div className="flex items-start justify-between gap-3 border-b border-[#E9E4F2] pb-2">
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-[#221340]">{fmtDate(entry.created_at)}</div>
+                <div className="mt-1 break-words leading-5 text-[#6B6278]">{entry.description || "-"}</div>
+              </div>
+              <div className="shrink-0 rounded-lg bg-[#F8F7FC] px-2 py-1 text-left font-mono font-bold text-[#452480]">{entry.op_number || "-"}</div>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-[#F8F7FC] p-2"><div className="text-[#6B6278]">مدين</div><div className="mt-1 font-black text-red-700">{fmt(entry.debit || 0)}</div></div>
+              <div className="rounded-lg bg-[#F8F7FC] p-2"><div className="text-[#6B6278]">دائن</div><div className="mt-1 font-black text-emerald-700">{fmt(entry.credit || 0)}</div></div>
+              <div className="col-span-2 rounded-lg border border-[#E9E4F2] bg-white p-2"><div className="text-[#6B6278]">الرصيد بعد العملية</div><div className="mt-1 font-black text-[#221340]">{fmt(entry.balance || 0)} ريال</div></div>
+            </div>
+          </article>
+        ))}
+        {!entries.length && <div className="rounded-xl border border-dashed border-[#D9CBE8] bg-white px-3 py-8 text-center text-[#6B6278]">لا توجد بيانات لعرضها</div>}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-xl border border-[#E5DDF0] bg-white shadow-sm md:block" data-testid="po-stmt-preview-table-wrap">
+        <table className="w-full border-collapse text-xs">
+          <thead className="bg-[#221340] text-white">
+            <tr>
+              <th className="whitespace-nowrap px-2 py-2 text-right">التاريخ</th>
+              <th className="whitespace-nowrap px-2 py-2 text-right">رقم المستند</th>
+              <th className="min-w-[230px] px-2 py-2 text-right">التفاصيل</th>
+              <th className="whitespace-nowrap px-2 py-2 text-right">مدين</th>
+              <th className="whitespace-nowrap px-2 py-2 text-right">دائن</th>
+              <th className="whitespace-nowrap px-2 py-2 text-right">الرصيد</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry, index) => (
+              <tr key={entry.id || `${entry.created_at}-${index}`} className="border-b border-[#E9E4F2] align-top even:bg-[#F8F7FC]">
+                <td className="whitespace-nowrap px-2 py-2">{fmtDate(entry.created_at)}</td>
+                <td className="whitespace-nowrap px-2 py-2 font-mono font-bold text-[#452480]">{entry.op_number || "-"}</td>
+                <td className="whitespace-normal px-2 py-2 leading-6">{entry.description || "-"}</td>
+                <td className="whitespace-nowrap px-2 py-2 font-bold text-red-700">{fmt(entry.debit || 0)}</td>
+                <td className="whitespace-nowrap px-2 py-2 font-bold text-emerald-700">{fmt(entry.credit || 0)}</td>
+                <td className="whitespace-nowrap px-2 py-2 font-bold">{fmt(entry.balance || 0)}</td>
+              </tr>
+            ))}
+            {!entries.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-400">لا توجد بيانات لعرضها</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 rounded-xl border border-[#E5DDF0] bg-white p-3 text-xs shadow-sm sm:grid-cols-3">
+        <div><div className="text-slate-500">إجمالي المدين</div><div className="mt-1 font-black text-red-700">{fmt(totalDebit)}</div></div>
+        <div><div className="text-slate-500">إجمالي الدائن</div><div className="mt-1 font-black text-emerald-700">{fmt(totalCredit)}</div></div>
+        <div><div className="text-slate-500">الرصيد النهائي</div><div className="mt-1 font-black">{balanceText}</div></div>
+      </div>
+
+      <div className="flex flex-col-reverse gap-2 border-t border-[#E5DDF0] pt-3 sm:flex-row">
+        <Button type="button" onClick={() => { printStatement(data); onClose(); }} className="flex-1 bg-[#452480] hover:bg-[#5A2FA0]" data-testid="po-stmt-preview-print"><Printer size={14} className="ml-1"/> طباعة الكشف</Button>
+        <Button type="button" variant="outline" onClick={onClose} data-testid="po-stmt-preview-close">إغلاق</Button>
+      </div>
+    </div>
+  );
+}
+
+function StatementPeriodPicker({ onCancel, onPrint, loading, submitLabel, submitIcon, hideCancel }) {
+  const today = todayIso();
+  const [period, setPeriod] = useState("day");
+  const [start, setStart] = useState(today);
+  const [end, setEnd] = useState(today);
+
+  const handlePeriodChange = ({ period: nextPeriod, start: nextStart, end: nextEnd }) => {
+    setPeriod(nextPeriod);
+    setStart(nextStart);
+    setEnd(nextEnd);
+  };
+
+  const submit = () => {
+    const error = validatePeriodRange({ period, start, end });
+    if (error) { toast.error(error); return; }
+    onPrint(start, end);
+  };
+
+  return (
+    <div className="space-y-3 pt-2">
+      <PeriodFilter
+        period={period}
+        start={start}
+        end={end}
+        onChange={handlePeriodChange}
+        testidPrefix="po-stmt"
+      />
+      <div className="flex gap-2 pt-3 border-t">
+        <Button
+          onClick={submit}
+          disabled={loading}
+          className="flex-1 bg-[#452480] hover:bg-[#5A2FA0]"
+          data-testid="po-stmt-print"
+        >
+          {submitIcon || <FileText size={14} className="ml-1" />}
+          {loading ? "جاري..." : submitLabel || "طباعة"}
+        </Button>
+        {!hideCancel && <Button variant="outline" onClick={onCancel}>إلغاء</Button>}
+      </div>
+    </div>
+  );
+}
+
+function PortalFavoritesPanel({ list = [], canTransfer, onRemove, onSendCard, onSendBalance }) {
+  const remove = async (phone) => {
+    const next = list.filter((item) => item.phone !== phone);
+    if (await onRemove?.(next)) toast.success("تم حذف الرقم من حسابك");
+  };
+
+  if (!list.length) {
+    return <div className="rounded-2xl border border-dashed border-[#D9CBE8] bg-[#F8F7FC] p-6 text-center text-sm text-[#6B6278]" data-testid="po-favorites-empty">لا توجد أرقام مضافة إلى المفضلة حالياً.<br/><span className="text-xs">يمكنك إضافة رقم من قسم إرسال الكرت إلى رقم آخر.</span></div>;
+  }
+
+  return (
+    <div className="space-y-3" data-testid="po-favorites-list">
+      <div className="text-xs leading-6 text-[#6B6278]">اختر رقماً لإرسال {canTransfer ? "رصيد" : "كرت"} دون إعادة كتابة الرقم.</div>
+      {list.map((item) => (
+        <div key={item.phone} className="rounded-2xl border border-[#E5DDF0] bg-[#F8F7FC] p-3" data-testid={`po-favorite-${item.phone}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0"><div className="truncate font-black text-[#221340]">{item.name || item.phone}</div><div className="font-mono text-xs text-[#6B6278]" dir="ltr">{item.phone}</div></div>
+            <button type="button" onClick={() => remove(item.phone)} className="text-xs font-bold text-red-600 hover:underline">حذف</button>
+          </div>
+          <div className={`mt-3 ${canTransfer ? "grid grid-cols-2 gap-2" : ""}`}>
+            <Button type="button" onClick={() => onSendCard(item)} className="h-10 w-full rounded-xl bg-[#221340] text-xs font-black hover:bg-[#311B5C]" data-testid={`po-favorite-card-${item.phone}`}><Send size={13} className="ml-1"/> إرسال كرت</Button>
+            {canTransfer && <Button type="button" onClick={() => onSendBalance(item)} className="h-10 w-full rounded-xl border border-[#452480] bg-white text-xs font-black text-[#452480] hover:bg-[#F3EEF8]" data-testid={`po-favorite-balance-${item.phone}`}><ArrowLeftRight size={13} className="ml-1"/> إرسال رصيد</Button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function YemenPhoneField({ value, onChange, testid, required = true }) {
+  return (
+    <div className="po-phone-field flex items-center gap-1.5" dir="ltr">
+      <div className="flex h-12 shrink-0 items-center gap-1 rounded-xl border border-[#DDD6EE] bg-[#F4F1FA] px-2.5 text-sm font-black text-[#221340]" aria-label="الدولة">🇾🇪 +967</div>
+      <div className="relative min-w-0 flex-1">
+        <Input
+          type="tel"
+          inputMode="numeric"
+          dir="ltr"
+          value={value}
+          onChange={(e) => onChange(normalizeYemenPhone(e.target.value))}
+          required={required}
+          autoComplete="tel-national"
+          placeholder="7xxxxxxxx"
+          data-testid={testid}
+          className="h-12 min-w-0 w-full rounded-xl border-[#DDD8E7] bg-white px-3 text-base font-bold shadow-none"
+        />
+        <Smartphone size={18} fill="currentColor" strokeWidth={1.5} className="po-filled-field-icon pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
+function RecoveryMethodSelector({ value, onChange }) {
+  return (
+    <div className="po-auth-recovery" data-testid="po-recovery-method">
+      <div className="po-auth-recovery-label">طريقة الإرسال</div>
+      <div className="po-auth-recovery-options">
+        <button type="button" onClick={() => onChange("whatsapp")} className={`po-auth-recovery-option ${value === "whatsapp" ? "is-selected" : ""}`} data-testid="po-recovery-whatsapp"><MessageSquare size={16}/> واتساب</button>
+        <button type="button" onClick={() => onChange("sms")} className={`po-auth-recovery-option ${value === "sms" ? "is-selected" : ""}`} data-testid="po-recovery-sms"><Send size={16}/> SMS</button>
+      </div>
+    </div>
+  );
+}
+
+function ForgotPasswordForm({ onClose, recoveryMethod, onRecoveryMethodChange }) {
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const r = await api.post("/public/customer/forgot-password", { phone });
-      const now = new Date();
+      const normalizedPhone = normalizeYemenPhone(phone);
+      if (!isYemenMobilePhone(normalizedPhone)) { toast.error("أدخل رقم هاتف يمني صحيحاً من 9 أرقام"); setLoading(false); return; }
+      const r = await api.post("/public/customer/forgot-password", { phone: normalizedPhone });
+      const now = getAppNow();
       const msg = `طلب استعادة كلمة المرور\n\nاسم العميل: ${r.data.name}\nالرقم: ${r.data.phone}\nالهاتف: ${r.data.phone}\nالعنوان: ${r.data.address || "-"}\n\nأرجو من الإدارة مساعدتي في استعادة كلمة المرور.\n\n${now.toLocaleString("en-GB")}`;
-      openWhatsApp(ADMIN_WHATSAPP, msg);
-      toast.success("جاري فتح واتساب");
+      toast.success("تم إرسال طلبك بنجاح، سيصلك كلمة المرور الجديدة إلى رقم هاتفك");
       onClose();
     } catch (e) { toast.error(errText(e)); }
     setLoading(false);
   };
   return (
-    <DialogContent>
-      <DialogHeader><DialogTitle>نسيت كلمة المرور؟</DialogTitle></DialogHeader>
-      <form onSubmit={submit} className="space-y-3">
-        <div className="text-sm text-slate-600">سيتم إرسال طلب استعادة كلمة المرور إلى الإدارة عبر واتساب.</div>
-        <div><Label>رقم الهاتف</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} required data-testid="fp-phone"/></div>
-        <Button type="submit" disabled={loading} className="w-full bg-[#221340]" data-testid="fp-submit">{loading?"جاري...":"إرسال الطلب للإدارة"}</Button>
+    <DialogContent dir="rtl" className="po-dialog-surface po-form-dialog po-auth-dialog po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-[2rem] border-[#E5DDF0] bg-white p-6" data-testid="po-forgot-dialog">
+      <div className="mb-5 grid grid-cols-2 gap-1 rounded-2xl bg-[#F3EEF8] p-1" role="tablist" aria-label="استعادة كلمة المرور">
+        <button type="button" onClick={onClose} className="rounded-xl py-3 text-sm font-bold text-[#6B6278] hover:text-[#452480]">تسجيل الدخول</button>
+        <button type="button" className="rounded-xl bg-white py-3 text-sm font-black text-[#452480] shadow-sm">نسيت كلمة المرور</button>
+      </div>
+      <DialogHeader><div className="po-dialog-hero"><div className="po-badge-mark" aria-hidden="true">G</div><DialogTitle className="text-center text-2xl font-black text-[#221340]">نسيت كلمة المرور؟</DialogTitle></div></DialogHeader>
+      <form onSubmit={submit} className="po-auth-form">
+        <div className="po-auth-description">أدخل رقم هاتفك وسيتم إرسال طلبك إلى الإدارة. بعد الموافقة سيصلك كلمة المرور الجديدة إلى رقم هاتفك.</div>
+        <div className="po-auth-field"><Label>رقم الهاتف</Label><YemenPhoneField value={phone} onChange={setPhone} testid="fp-phone"/></div>
+        {null}
+        <Button type="submit" disabled={loading} className="po-auth-submit" data-testid="fp-submit">{loading?"جاري...":"إرسال الطلب"}</Button>
+        <button type="button" onClick={onClose} className="po-auth-secondary-link">رجوع لتسجيل الدخول</button>
       </form>
     </DialogContent>
   );
 }
 
-function RegisterForm({ onClose }) {
-  const [f, setF] = useState({ full_name: "", phone: "", address: "" });
+function RegisterForm({ inline = false, initialPhone = "", onClose, recoveryMethod, onRecoveryMethodChange }) {
+  const [f, setF] = useState({ full_name: "", phone: "", address: "", account_type: "customer" });
   const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    const normalized = normalizeYemenPhone(initialPhone);
+    if (normalized) setF((prev) => ({ ...prev, phone: normalized }));
+  }, [initialPhone]);
   const submit = async (e) => {
     e.preventDefault();
+    const name = (f.full_name || "").trim();
+    const phone = normalizeYemenPhone(f.phone);
+    const address = (f.address || "").trim();
+    if (!name) { toast.error("الاسم الرباعي مطلوب"); return; }
+    if (name.split(/\s+/).length < 2) { toast.error("الرجاء إدخال الاسم الرباعي كاملاً"); return; }
+    if (!phone) { toast.error("رقم الهاتف مطلوب"); return; }
+    if (!isYemenMobilePhone(phone)) { toast.error("أدخل رقم هاتف يمني صحيحاً من 9 أرقام"); return; }
+    if (!address) { toast.error("العنوان مطلوب"); return; }
     setLoading(true);
     try {
-      await api.post("/public/customer/register-request", f);
-      const now = new Date();
-      const msg = `طلب إنشاء حساب جديد\n\nاسم العميل: ${f.full_name}\nرقم الهاتف: ${f.phone}\nالعنوان: ${f.address || "-"}\n\nيرجى الموافقة على الطلب.\n\n${now.toLocaleString("en-GB")}`;
-      openWhatsApp(ADMIN_WHATSAPP, msg);
-      toast.success("تم إرسال الطلب، سيتم التواصل معك قريباً");
+      await api.post("/public/customer/register-request", { full_name: name, phone, address, account_type: f.account_type });
+      const now = getAppNow();
+      const msg = `طلب إنشاء حساب جديد\n\nنوع الحساب: ${f.account_type === "pos" ? "نقطة بيع" : "عميل"}\nاسم العميل: ${name}\nرقم الهاتف: ${phone}\nالعنوان: ${address}\n\nيرجى الموافقة على الطلب.\n\n${now.toLocaleString("en-GB")}`;
+      toast.success("تم إرسال طلبك بنجاح، سيصلك كلمة المرور الجديدة إلى رقم هاتفك");
       onClose();
     } catch (e) { toast.error(errText(e)); }
     setLoading(false);
   };
+  const Wrapper = inline ? "div" : DialogContent;
   return (
-    <DialogContent>
-      <DialogHeader><DialogTitle>إنشاء حساب جديد</DialogTitle></DialogHeader>
-      <form onSubmit={submit} className="space-y-3">
-        <div><Label>الاسم الكامل</Label><Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} required data-testid="reg-name"/></div>
-        <div><Label>رقم الهاتف</Label><Input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} required data-testid="reg-phone"/></div>
-        <div><Label>العنوان</Label><Input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} data-testid="reg-address"/></div>
-        <Button type="submit" disabled={loading} className="w-full bg-[#221340]" data-testid="reg-submit">{loading?"جاري...":"تسجيل"}</Button>
+    <Wrapper dir="rtl" className={inline ? "po-register-inline" : "po-dialog-surface po-form-dialog po-auth-dialog po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-[2rem] border-[#E5DDF0] bg-white p-6"} data-testid="po-register-dialog">
+      {!inline && <DialogHeader><div className="po-dialog-hero"><div className="po-badge-mark" aria-hidden="true">G</div><DialogTitle className="text-center text-2xl font-black text-[#221340]">إنشاء حساب جديد</DialogTitle></div></DialogHeader>}
+      <form onSubmit={submit} className="po-auth-form">
+        <div className="po-auth-field">
+          <Label>نوع الحساب</Label>
+          <div className="po-auth-choice-grid" data-testid="reg-account-type">
+            <button type="button" onClick={() => setF({ ...f, account_type: "customer" })} className={`po-auth-choice ${f.account_type === "customer" ? "is-selected" : ""}`} data-testid="reg-type-customer">عميل</button>
+            <button type="button" onClick={() => setF({ ...f, account_type: "pos" })} className={`po-auth-choice ${f.account_type === "pos" ? "is-selected" : ""}`} data-testid="reg-type-pos">نقطة بيع</button>
+          </div>
+        </div>
+        <div className="po-auth-field">
+          <Label>الاسم الرباعي <span className="text-red-500">*</span></Label>
+          <Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} required placeholder="مثال: محمد أحمد علي سالم" data-testid="reg-name" className="po-auth-text-input"/>
+        </div>
+        <div className="po-auth-field">
+          <Label>رقم الهاتف <span className="text-red-500">*</span></Label>
+          <YemenPhoneField value={f.phone} onChange={(value) => setF({ ...f, phone: value })} testid="reg-phone"/>
+        </div>
+        <div className="po-auth-field">
+          <Label>العنوان <span className="text-red-500">*</span></Label>
+          <Input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} required placeholder="المدينة، الحي، أقرب معلم" data-testid="reg-address" className="po-auth-text-input"/>
+        </div>
+        <div className="po-auth-note">جميع الحقول إجبارية (*)</div>
+        {null}
+        <Button type="submit" disabled={loading} className="po-auth-submit" data-testid="reg-submit">{loading?"جاري الإرسال...":"إرسال طلب إنشاء حساب"}</Button>
       </form>
-    </DialogContent>
+    </Wrapper>
   );
 }
 
@@ -386,13 +2362,13 @@ function ChangePasswordForm({ phone, currentPassword, onClose, onDone }) {
     setLoading(false);
   };
   return (
-    <DialogContent>
-      <DialogHeader><DialogTitle>تغيير كلمة المرور</DialogTitle></DialogHeader>
-      <form onSubmit={submit} className="space-y-3">
-        <div><Label>كلمة المرور الحالية</Label><Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required data-testid="cp-current"/></div>
-        <div><Label>كلمة المرور الجديدة</Label><Input type="password" value={next} onChange={(e) => setNext(e.target.value)} required data-testid="cp-new"/></div>
-        <div><Label>تأكيد كلمة المرور</Label><Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required data-testid="cp-confirm"/></div>
-        <Button type="submit" disabled={loading} className="w-full bg-[#221340]" data-testid="cp-submit">{loading?"جاري...":"حفظ"}</Button>
+    <DialogContent dir="rtl" className="po-dialog-surface po-form-dialog po-auth-dialog po-portal-scroll-dialog w-[calc(100vw-1rem)] max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-[1.5rem] border-[#E5DDF0] bg-white p-4 sm:p-6" data-testid="po-change-password-dialog">
+      <DialogHeader><div className="po-dialog-hero"><div className="po-badge-mark" aria-hidden="true">G</div><DialogTitle className="text-center text-2xl font-black text-[#221340]">تغيير كلمة المرور</DialogTitle></div></DialogHeader>
+      <form onSubmit={submit} className="po-auth-form">
+        <div className="po-auth-field"><Label>كلمة المرور الحالية</Label><Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required data-testid="cp-current" className="po-auth-text-input" placeholder="أدخل كلمة المرور الحالية"/></div>
+        <div className="po-auth-field"><Label>كلمة المرور الجديدة</Label><Input type="password" value={next} onChange={(e) => setNext(e.target.value)} required data-testid="cp-new" className="po-auth-text-input" placeholder="أدخل كلمة المرور الجديدة"/></div>
+        <div className="po-auth-field"><Label>تأكيد كلمة المرور</Label><Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required data-testid="cp-confirm" className="po-auth-text-input" placeholder="أعد إدخال كلمة المرور"/></div>
+        <Button type="submit" disabled={loading} className="po-auth-submit" data-testid="cp-submit">{loading?"جاري...":"حفظ"}</Button>
       </form>
     </DialogContent>
   );

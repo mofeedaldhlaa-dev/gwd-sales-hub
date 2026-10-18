@@ -7,11 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { fmt } from "@/lib/utils";
-import { Plus, Edit, Trash2 } from "lucide-react";
+import { Plus, Edit, Trash2, Eye, EyeOff } from "lucide-react";
 
-const empty = { name: "", value: 0, sale_price: 0, sale_price_customer: 0, sale_price_pos: 0, purchase_price: 0, validity_days: 30, data_size: "", status: "active", notes: "", low_stock_threshold: 20, low_stock_numbered: 10, low_stock_quantity: 20 };
+const empty = { name: "", value: 0, sale_price: 0, sale_price_customer: 0, sale_price_pos: 0, purchase_price: 0, validity_days: 30, data_size: "", status: "active", notes: "", low_stock_threshold: 20, low_stock_numbered: 10, low_stock_quantity: 20, show_in_public: true };
 
 function CategoryForm({ initial, onSaved, onClose }) {
   const [f, setF] = useState(initial ? { ...empty, ...initial } : empty);
@@ -44,6 +45,13 @@ function CategoryForm({ initial, onSaved, onClose }) {
         <div><Label>حد تنبيه المرقمة</Label><Input type="number" value={f.low_stock_numbered} onChange={(e) => setF({ ...f, low_stock_numbered: e.target.value })} /></div>
       </div>
       <Textarea placeholder="ملاحظات" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-[#221340]">إظهار في الطلب الإلكتروني</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">عند الإيقاف تختفي الفئة من شاشة شراء الكرت للعميل فقط. تبقى الفئة والكروت والتقارير كما هي داخل النظام.</div>
+        </div>
+        <Switch checked={f.show_in_public !== false} onCheckedChange={(v) => setF({ ...f, show_in_public: v })} data-testid="cat-public-toggle" />
+      </div>
       <Button type="submit" disabled={loading} className="w-full bg-[#221340]" data-testid="cat-save">{loading?"جاري...":"حفظ"}</Button>
     </form>
   );
@@ -60,6 +68,13 @@ export default function Categories() {
       const r = await api.delete(`/categories/${id}`);
       toast.success(r.data.action === "deleted" ? "تم الحذف" : r.data.reason || "تم التعطيل");
       load();
+    } catch (e) { toast.error(errText(e)); }
+  };
+  const togglePublic = async (c) => {
+    try {
+      const r = await api.post(`/categories/${c.id}/toggle-public`);
+      setItems((prev) => prev.map((x) => x.id === c.id ? { ...x, show_in_public: r.data.show_in_public } : x));
+      toast.success(r.data.show_in_public ? "أصبحت الفئة ظاهرة في الطلب الإلكتروني" : "تم إخفاء الفئة من الطلب الإلكتروني");
     } catch (e) { toast.error(errText(e)); }
   };
   return (
@@ -85,9 +100,18 @@ export default function Categories() {
                 <div className="text-xs">نقطة: <span className="num font-bold text-[#452480]">{fmt(c.sale_price_pos || c.sale_price)}</span></div>
               </div>
             </div>
-            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-              <span className="text-slate-500">شراء: <span className="num">{fmt(c.purchase_price)}</span></span>
-              <div className="flex gap-1">
+            <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => togglePublic(c)}
+                data-testid={`cat-public-${c.id}`}
+                title="الطلب الإلكتروني"
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${c.show_in_public !== false ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "border-slate-300 bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+              >
+                {c.show_in_public !== false ? <><Eye size={12}/> ظاهر</> : <><EyeOff size={12}/> مخفي</>}
+              </button>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-500">شراء: <span className="num">{fmt(c.purchase_price)}</span></span>
                 <Button size="sm" variant="outline" onClick={() => { setEdit(c); setOpen(true); }} data-testid={`cat-edit-${c.id}`}><Edit size={12}/></Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild><Button size="sm" variant="outline" data-testid={`cat-del-${c.id}`}><Trash2 size={12} className="text-red-500"/></Button></AlertDialogTrigger>

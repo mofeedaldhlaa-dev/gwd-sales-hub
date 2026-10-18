@@ -1,6 +1,12 @@
+import { formatAppNow, todayIso } from "@/lib/DateService";
 // Standalone print utility - opens a new window with A4-formatted document
 // Never uses window.print() on the admin shell
 import { fmt, fmtDate, fmtDateOnly } from "./utils";
+import { isNativePrintAvailable, nativePrintHtml } from "./nativePrint";
+
+export const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[char]));
 
 const HEADER_STYLE = `
 <style>
@@ -90,21 +96,18 @@ const buildHeader = () => `
 
 const buildFooter = (username) => `
   <div class="footer">
-    <div>أنشأ الملف: ${username || "-"}</div>
-    <div>${new Date().toLocaleString("en-GB")}</div>
+    <div>أنشأ الملف: ${escapeHtml(username || "-")}</div>
+    <div>${formatAppNow()}</div>
   </div>
 `;
 
-export const openPrintWindow = (html) => {
-  const w = window.open("", "_blank", "width=900,height=700");
-  if (!w) { alert("يرجى السماح بالنوافذ المنبثقة"); return; }
-  w.document.write(`
+const buildPrintDocument = (html, title = "طباعة") => `
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <title>طباعة</title>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
   ${HEADER_STYLE}
 </head>
 <body>
@@ -112,16 +115,60 @@ export const openPrintWindow = (html) => {
     ${buildHeader()}
     ${html}
   </div>
-  <script>
-    window.addEventListener("load", () => { setTimeout(() => { window.print(); }, 400); });
-  </script>
 </body>
 </html>
-  `);
+`;
+
+const printFileName = (value, fallback = "كشف حساب") => {
+  const cleaned = String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return cleaned || fallback;
+};
+
+export const openPrintWindow = (html, title = "طباعة", nativeJobName = null) => {
+  const fullDocument = buildPrintDocument(html, title);
+
+  // Capacitor WebView has no reliable browser popup/print dialog. Route APK
+  // printing through Android PrintManager so the user can select Save as PDF.
+  if (isNativePrintAvailable()) {
+    return nativePrintHtml(fullDocument, nativeJobName || `GAWAD NET - ${title}`).catch((error) => {
+      console.error("Native PDF print failed", error);
+      alert("تعذر فتح شاشة حفظ PDF. يرجى المحاولة مرة أخرى.");
+    });
+  }
+
+  const w = window.open("", "_blank", "width=900,height=700");
+  if (!w) { alert("يرجى السماح بالنوافذ المنبثقة"); return; }
+  const webDocument = fullDocument.replace(
+    "</body>",
+    '<script>window.addEventListener("load", () => { setTimeout(() => { window.print(); }, 400); });</script></body>',
+  );
+  w.document.write(webDocument);
   w.document.close();
 };
 
-export const printSaleInvoice = ({ sale, customer, username }) => {
+const buildBanksBlock = (banks, where) => {
+  const list = (banks || []).filter((b) => b.active && (b.show_in || []).includes(where));
+  if (!list.length) return "";
+  const rows = list.map((b) => `
+    <div style="border:1px solid #D4AF37;border-right:4px solid #D4AF37;background:#FFFCF3;padding:3mm 4mm;margin-top:3mm;border-radius:2mm">
+      <div style="font-weight:700;color:#221340">${b.bank_name}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:2mm 6mm;margin-top:2mm;font-size:11px">
+        <div><span style="color:#666">اسم الحساب: </span><span style="font-weight:700">${b.holder_name || "-"}</span></div>
+        <div><span style="color:#666">رقم الحساب: </span><span style="font-family:monospace;font-weight:700">${b.account_number || "-"}</span></div>
+      </div>
+      ${b.details ? `<div style="margin-top:1mm;color:#555;font-size:10px;white-space:pre-line">${b.details}</div>` : ""}
+    </div>
+  `).join("");
+  return `<div style="margin-top:6mm"><div style="font-weight:700;color:#221340;margin-bottom:1mm">للسداد عبر:</div>${rows}</div>`;
+};
+
+export const printSaleInvoice = ({ sale, customer, username, banks }) => {
+  const invoicePaymentLabel = sale.invoice_payment_label || (sale.sale_type === "cash" ? "نقدي" : "آجل");
   const itemsRows = (sale.items || []).map((it, i) => {
     const numbers = (it.card_numbers || []).join(", ");
     return `<tr>
@@ -137,10 +184,11 @@ export const printSaleInvoice = ({ sale, customer, username }) => {
     <div class="title">فاتورة مبيعات — ${sale.number}</div>
     <div class="info-grid">
       <div class="info-row"><span class="lbl">التاريخ</span><span class="val">${fmtDate(sale.created_at)}</span></div>
-      <div class="info-row"><span class="lbl">نوع الفاتورة</span><span class="val">${sale.sale_type === "cash" ? "نقد" : "آجل"}</span></div>
+      <div class="info-row"><span class="lbl">نوع الفاتورة</span><span class="val">${invoicePaymentLabel}</span></div>
       <div class="info-row"><span class="lbl">اسم العميل</span><span class="val">${sale.customer_name || "-"}</span></div>
       <div class="info-row"><span class="lbl">رقم الهاتف</span><span class="val">${customer?.phone || "-"}</span></div>
       <div class="info-row"><span class="lbl">نوع الحساب</span><span class="val">${(customer?.customer_type || "customer") === "pos" ? "نقطة بيع" : "عميل"}</span></div>
+      ${sale.recipient_phone ? `<div class="info-row" style="grid-column:1/-1;background:#fff8e1;border-color:#f5c451"><span class="lbl">📤 المرسل إلى</span><span class="val" style="font-family:monospace;font-weight:bold;color:#7a4b00">${sale.recipient_phone}</span></div>` : ""}
       <div class="info-row"><span class="lbl">المستخدم</span><span class="val">${sale.username || "-"}</span></div>
     </div>
     <table>
@@ -161,12 +209,13 @@ export const printSaleInvoice = ({ sale, customer, username }) => {
       <div class="row grand"><span>المتبقي</span><span class="num">${fmt(sale.remaining)}</span></div>
       ${customer ? `<div class="row"><span>إجمالي الرصيد المستحق</span><span class="num">${fmt(customer.balance || 0)}</span></div>` : ""}
     </div>
+    ${buildBanksBlock(banks, "invoices")}
     ${buildFooter(username)}
   `;
   openPrintWindow(html);
 };
 
-export const printPurchase = ({ purchase, supplier, username }) => {
+export const printPurchase = ({ purchase, supplier, username, banks }) => {
   const itemsRows = (purchase.items || []).map((it, i) => `<tr>
     <td>${i + 1}</td><td>${it.category_name || ""}</td>
     <td class="num">${it.quantity}</td><td class="num">${fmt(it.price)}</td><td class="num">${fmt(it.total)}</td>
@@ -175,6 +224,7 @@ export const printPurchase = ({ purchase, supplier, username }) => {
     <div class="title">فاتورة مشتريات — ${purchase.number}</div>
     <div class="info-grid">
       <div class="info-row"><span class="lbl">التاريخ</span><span class="val">${fmtDate(purchase.created_at)}</span></div>
+      <div class="info-row"><span class="lbl">نوع الفاتورة</span><span class="val">${purchase.purchase_type === "cash" ? "نقد" : "آجل"}</span></div>
       <div class="info-row"><span class="lbl">المورد</span><span class="val">${purchase.supplier_name || "-"}</span></div>
       <div class="info-row"><span class="lbl">رقم الهاتف</span><span class="val">${supplier?.phone || "-"}</span></div>
       <div class="info-row"><span class="lbl">المستخدم</span><span class="val">${purchase.username || "-"}</span></div>
@@ -190,12 +240,13 @@ export const printPurchase = ({ purchase, supplier, username }) => {
       <div class="row"><span>المدفوع</span><span class="num">${fmt(purchase.paid)}</span></div>
       <div class="row grand"><span>المتبقي</span><span class="num">${fmt(purchase.remaining)}</span></div>
     </div>
+    ${buildBanksBlock(banks, "invoices")}
     ${buildFooter(username)}
   `;
   openPrintWindow(html);
 };
 
-export const printReceipt = ({ receipt, party, username }) => {
+export const printReceipt = ({ receipt, party, username, banks }) => {
   const dir = receipt.kind === "receipt" ? "لكم" : "عليكم";
   const label = receipt.kind === "receipt" ? "سند قبض" : "سند صرف";
   const html = `
@@ -213,12 +264,33 @@ export const printReceipt = ({ receipt, party, username }) => {
       <div class="row grand"><span>الرصيد بعد السند</span><span class="num">${fmt(receipt.balance_after || 0)}</span></div>
     </div>
     ${receipt.description ? `<div style="margin-top:5mm;padding:3mm;background:#FAF7FF;border-right:3px solid #D4AF37"><strong>التفاصيل:</strong><br/>${receipt.description}</div>` : ""}
+    ${buildBanksBlock(banks, "receipts")}
     ${buildFooter(username)}
   `;
   openPrintWindow(html);
 };
 
-export const printStatement = ({ customer, entries, username }) => {
+export const printExpense = ({ expense, account, username }) => {
+  const html = `
+    <div class="title">سند مصروف — ${escapeHtml(expense?.number || "-")}</div>
+    <div class="info-grid">
+      <div class="info-row"><span class="lbl">التاريخ</span><span class="val">${fmtDate(expense?.created_at)}</span></div>
+      <div class="info-row"><span class="lbl">حساب المصروف</span><span class="val">${escapeHtml(expense?.account_name || account?.name || "-")}</span></div>
+      <div class="info-row"><span class="lbl">المستخدم</span><span class="val">${escapeHtml(expense?.username || username || "-")}</span></div>
+    </div>
+    <div class="totals" style="max-width:120mm">
+      <div class="row grand"><span>المبلغ</span><span class="num">${fmt(expense?.amount || 0)}</span></div>
+    </div>
+    ${expense?.description ? `<div style="margin-top:5mm;padding:3mm;background:#FAF7FF;border-right:3px solid #D4AF37"><strong>البيان:</strong><br/>${escapeHtml(expense.description)}</div>` : ""}
+    ${buildFooter(username)}
+  `;
+  openPrintWindow(html);
+};
+
+// ONE statement template, shared by the customers screens AND the accounts screens.
+// Optional params (typeLabel / closingBalance / extraInfo) default to the original
+// customer behaviour, so customer statements render byte-identically to before.
+export const printStatement = ({ customer, entries, username, rangeTitle, typeLabel, closingBalance, extraInfo }) => {
   const rows = (entries || []).map((e) => `<tr>
     <td>${fmtDateOnly(e.created_at)}</td>
     <td>${e.op_number || "-"}</td>
@@ -229,15 +301,20 @@ export const printStatement = ({ customer, entries, username }) => {
   </tr>`).join("");
   const totalDebit = (entries || []).reduce((s, e) => s + (e.debit || 0), 0);
   const totalCredit = (entries || []).reduce((s, e) => s + (e.credit || 0), 0);
+  // Final balance: accounts screens pass the period closing balance; customers keep customer.balance.
+  const finalBalance = closingBalance === undefined || closingBalance === null
+    ? (customer.balance || 0)
+    : closingBalance;
+  const fmtBalance = (b) => (b || 0) === 0 ? "0 ريال" : `${fmt(Math.abs(b || 0))} ${(b || 0) > 0 ? "عليكم" : "لكم"}`;
+  const extraRows = (extraInfo || []).map((r) => `
+      <div class="info-row"><span class="lbl">${r.lbl}</span><span class="val">${r.val}</span></div>`).join("");
   const html = `
-    <div class="title">كشف حساب — ${customer.name}</div>
+    <div class="title">${rangeTitle || `كشف حساب — ${customer.name}`}</div>
     <div class="info-grid">
       <div class="info-row"><span class="lbl">اسم الحساب</span><span class="val">${customer.name}</span></div>
-      <div class="info-row"><span class="lbl">نوع الحساب</span><span class="val">${(customer.customer_type || "customer") === "pos" ? "نقطة بيع" : "عميل"}</span></div>
+      <div class="info-row"><span class="lbl">نوع الحساب</span><span class="val">${typeLabel || ((customer.customer_type || "customer") === "pos" ? "نقطة بيع" : "عميل")}</span></div>
       <div class="info-row"><span class="lbl">رقم الهاتف</span><span class="val">${customer.phone || "-"}</span></div>
-      <div class="info-row"><span class="lbl">السقف</span><span class="val">${fmt(customer.credit_limit)}</span></div>
-      <div class="info-row"><span class="lbl">الرصيد الحالي</span><span class="val">${fmt(customer.balance)}</span></div>
-      <div class="info-row"><span class="lbl">المتاح</span><span class="val">${fmt(Math.max(0, (customer.credit_limit||0) - (customer.balance||0)))}</span></div>
+      <div class="info-row"><span class="lbl">الرصيد الحالي</span><span class="val">${fmtBalance(customer.balance)}</span></div>${extraRows}
     </div>
     <table>
       <thead><tr>
@@ -253,11 +330,12 @@ export const printStatement = ({ customer, entries, username }) => {
     <div class="totals">
       <div class="row"><span>إجمالي المدين</span><span class="num">${fmt(totalDebit)}</span></div>
       <div class="row"><span>إجمالي الدائن</span><span class="num">${fmt(totalCredit)}</span></div>
-      <div class="row grand"><span>الرصيد النهائي</span><span class="num">${fmt(customer.balance)}</span></div>
+      <div class="row grand"><span>الرصيد النهائي</span><span class="num">${fmtBalance(finalBalance)}</span></div>
     </div>
     ${buildFooter(username)}
   `;
-  openPrintWindow(html);
+  const accountFileName = printFileName(customer?.name);
+  openPrintWindow(html, accountFileName, accountFileName);
 };
 
 export const printPublicOrder = ({ order, customer, company = "شبكة جواد نت اللاسلكية" }) => {
@@ -269,6 +347,7 @@ export const printPublicOrder = ({ order, customer, company = "شبكة جواد
       <div class="info-row"><span class="lbl">اسم الحساب</span><span class="val">${order.customer_name || customer?.name || "-"}</span></div>
       <div class="info-row"><span class="lbl">رقم الهاتف</span><span class="val">${order.phone || customer?.phone || "-"}</span></div>
       <div class="info-row"><span class="lbl">نوع الحساب</span><span class="val">${(customer?.customer_type || "customer") === "pos" ? "نقطة بيع" : "عميل"}</span></div>
+      ${order.recipient_phone ? `<div class="info-row" style="grid-column:1/-1;background:#fff8e1;border-color:#f5c451"><span class="lbl">📤 المرسل إلى</span><span class="val" style="font-family:monospace;font-weight:bold;color:#7a4b00">${order.recipient_phone}</span></div>` : ""}
     </div>
     <table>
       <thead><tr>
@@ -296,12 +375,67 @@ export const printPublicOrder = ({ order, customer, company = "شبكة جواد
   openPrintWindow(html);
 };
 
-export const printReport = ({ title, headers, rows, totals, username }) => {
-  const headerCells = headers.map((h) => `<th>${h}</th>`).join("");
-  const dataRows = (rows || []).map((r) => `<tr>${r.map((c) => `<td>${c ?? "-"}</td>`).join("")}</tr>`).join("");
-  const totalsHtml = totals ? `<div class="totals">${totals.map((t) => `<div class="row"><span>${t.label}</span><span class="num">${t.value}</span></div>`).join("")}</div>` : "";
+// Professional A4 accounts / debts statement (snapshot of balances by category).
+// Shows: network name (header), account rows with balance + state (عليه / له),
+// grand totals (owed to us / owed by us / net) and the report date + selected period.
+export const printAccountsSummary = ({ categoryLabel, accounts, periodLabel, start, end, username, filterNote, showLastPayment }) => {
+  const state = (b) => (b > 0 ? "عليه" : b < 0 ? "له" : "متعادل");
+  // عمود «آخر تسديد» يظهر عند ترتيب الكشف حسب آخر تسديد.
+  const withLast = !!showLastPayment;
+  const lastPayCell = (a) => `<td class="num">${a.lastPaymentAt ? fmtDateOnly(String(a.lastPaymentAt).slice(0, 10)) : "-"}</td>`;
+  const rowsHtml = (accounts || []).map((a, i) => {
+    const b = a.balance || 0;
+    return `<tr>
+      <td class="num">${i + 1}</td>
+      <td>${a.typeLabel || "-"}</td>
+      <td>${a.name || "-"}</td>
+      <td>${a.phone || "-"}</td>
+      <td class="num">${fmt(Math.abs(b))}</td>
+      <td style="font-weight:700;color:${b > 0 ? "#b91c1c" : b < 0 ? "#047857" : "#666"}">${state(b)}</td>
+      ${withLast ? lastPayCell(a) : ""}
+    </tr>`;
+  }).join("");
+  const totalDebit = (accounts || []).reduce((s, a) => s + ((a.balance || 0) > 0 ? a.balance : 0), 0);
+  const totalCredit = (accounts || []).reduce((s, a) => s + ((a.balance || 0) < 0 ? Math.abs(a.balance) : 0), 0);
+  const net = totalDebit - totalCredit;
+  const periodTxt = start && end ? `من ${start} إلى ${end}` : (periodLabel || "حتى تاريخه");
   const html = `
-    <div class="title">${title}</div>
+    <div class="title">كشف حسابات — ${categoryLabel || "الكل"}</div>
+    <div class="info-grid">
+      <div class="info-row"><span class="lbl">الفئة</span><span class="val">${categoryLabel || "الكل"}</span></div>
+      <div class="info-row"><span class="lbl">الفترة</span><span class="val">${periodTxt}</span></div>
+      <div class="info-row"><span class="lbl">عدد الحسابات</span><span class="val num">${(accounts || []).length}</span></div>
+      <div class="info-row"><span class="lbl">تاريخ التقرير</span><span class="val">${fmtDateOnly(todayIso())}</span></div>
+      ${filterNote ? `<div class="info-row" style="grid-column:1/-1"><span class="lbl">الفلتر</span><span class="val">${escapeHtml(filterNote)}</span></div>` : ""}
+    </div>
+    <table>
+      <thead><tr>
+        <th style="width:8mm">م</th>
+        <th style="width:26mm">النوع</th>
+        <th>الاسم</th>
+        <th style="width:28mm">الهاتف</th>
+        <th style="width:26mm">الرصيد</th>
+        <th style="width:20mm">الحالة</th>
+        ${withLast ? `<th style="width:24mm">آخر تسديد</th>` : ""}
+      </tr></thead>
+      <tbody>${rowsHtml || `<tr><td colspan="${withLast ? 7 : 6}" class="no-data">لا توجد حسابات لعرضها</td></tr>`}</tbody>
+    </table>
+    <div class="totals">
+      <div class="row"><span>إجمالي المبالغ (عليه)</span><span class="num">${fmt(totalDebit)}</span></div>
+      <div class="row"><span>إجمالي المبالغ (له)</span><span class="num">${fmt(totalCredit)}</span></div>
+      <div class="row grand"><span>الصافي</span><span class="num">${fmt(Math.abs(net))} ${net > 0 ? "عليه" : net < 0 ? "له" : ""}</span></div>
+    </div>
+    ${buildFooter(username)}
+  `;
+  openPrintWindow(html);
+};
+
+export const printReport = ({ title, headers, rows, totals, username }) => {
+  const headerCells = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+  const dataRows = (rows || []).map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c ?? "-")}</td>`).join("")}</tr>`).join("");
+  const totalsHtml = totals ? `<div class="totals">${totals.map((t) => `<div class="row"><span>${escapeHtml(t.label)}</span><span class="num">${escapeHtml(t.value)}</span></div>`).join("")}</div>` : "";
+  const html = `
+    <div class="title">${escapeHtml(title)}</div>
     <table>
       <thead><tr>${headerCells}</tr></thead>
       <tbody>${dataRows || `<tr><td colspan="${headers.length}" class="no-data">لا توجد بيانات لعرضها</td></tr>`}</tbody>
@@ -310,4 +444,24 @@ export const printReport = ({ title, headers, rows, totals, username }) => {
     ${buildFooter(username)}
   `;
   openPrintWindow(html);
+};
+
+
+export const printStockReport = ({ rows = [] } = {}) => {
+  const safe = (value) => String(value ?? "-").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+  const body = rows.map((r, i) => `<tr><td>${safe(r.category_name || "-")}</td><td class="num">${fmt(r.available_numbered || 0)}</td><td class="num">${fmt(r.available_quantity || 0)}</td></tr>`).join("");
+  openPrintWindow(`<div class="title">تقرير المخزون</div><table><thead><tr><th>الفئة</th><th>المتوفر مرقمة</th><th>المتوفر كمية</th></tr></thead><tbody>${body || `<tr><td colspan="3" class="no-data">لا توجد بيانات مخزون</td></tr>`}</tbody></table>`);
+};
+
+export const printBalanceStockReport = ({ rows = [], start = "", end = "" } = {}) => {
+  const body = rows.map((r) => `<tr>
+    <td class="num">${escapeHtml(r.number || "-")}</td>
+    <td>${escapeHtml(String(r.created_at || "").replace("T", " ").slice(0, 19))}</td>
+    <td>${escapeHtml(r.description || "-")}</td>
+    <td>${escapeHtml(r.kind === "balance_transfer_out" ? "تحويل رصيد صادر" : "إضافة إلى المخزون")}</td>
+    <td class="num">${fmt(r.amount || 0)}</td>
+    <td class="num">${fmt(r.balance_after ?? 0)}</td>
+  </tr>`).join("");
+  const period = start || end ? `الفترة: ${escapeHtml(start || "-")} إلى ${escapeHtml(end || "-")}` : "كل الفترات";
+  openPrintWindow(`<div class="title">تقرير حركات مخزون الرصيد</div><div class="info-grid"><div class="info-row"><span class="lbl">${period}</span><span class="val">عدد الحركات: ${rows.length}</span></div></div><table><thead><tr><th>رقم العملية</th><th>التاريخ</th><th>البيان</th><th>الحركة</th><th>المبلغ</th><th>الرصيد بعد</th></tr></thead><tbody>${body || `<tr><td colspan="6" class="no-data">لا توجد حركات ضمن الفترة</td></tr>`}</tbody></table>`, "تقرير حركات مخزون الرصيد");
 };

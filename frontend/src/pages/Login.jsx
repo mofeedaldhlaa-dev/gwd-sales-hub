@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { useNavigate, Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
@@ -9,18 +9,27 @@ import { Wifi } from "lucide-react";
 export default function Login() {
   const { login, error, user } = useAuth();
   const nav = useNavigate();
-  const [username, setU] = useState("admin");
-  const [password, setP] = useState("admin123");
+  const [username, setU] = useState("");
+  const [password, setP] = useState("");
   const [loading, setLoading] = useState(false);
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
 
-  if (user) nav("/");
+  useEffect(() => { if (user) nav("/mof30", { replace: true }); }, [user, nav]);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!online) return;
     setLoading(true);
     const ok = await login(username, password);
     setLoading(false);
-    if (ok) nav("/");
+    if (ok) nav("/mof30", { replace: true });
   };
 
   return (
@@ -42,21 +51,23 @@ export default function Login() {
           </div>
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <label className="text-sm mb-1 block font-medium">اسم المستخدم</label>
-              <Input value={username} onChange={(e) => setU(e.target.value)} required data-testid="login-username" className="text-right" />
+              <label className="text-sm mb-1 block font-medium">اسم المستخدم أو البريد الإلكتروني</label>
+              <Input value={username} onChange={(e) => setU(e.target.value)} required data-testid="login-username" placeholder="admin أو you@example.com" autoComplete="username" className="text-right" />
             </div>
             <div>
               <label className="text-sm mb-1 block font-medium">كلمة المرور</label>
               <Input type="password" value={password} onChange={(e) => setP(e.target.value)} required data-testid="login-password" className="text-right" />
             </div>
             {error && <div className="text-sm text-red-600" data-testid="login-error">{error}</div>}
-            <Button type="submit" disabled={loading} data-testid="login-submit" className="w-full bg-[#221340] hover:bg-[#311B5C]">
+            {!online && (
+              <div className="rounded-md border border-red-300 bg-red-50 text-red-800 text-sm px-3 py-2 font-bold text-center" data-testid="login-offline">
+                لا يتوفر اتصال بالإنترنت. لا يمكنك تسجيل الدخول — اتصل بالإنترنت وحاول مجدداً.
+              </div>
+            )}
+            <Button type="submit" disabled={loading || !online} data-testid="login-submit" className="w-full bg-[#221340] hover:bg-[#311B5C]">
               {loading ? "جاري..." : "دخول"}
             </Button>
           </form>
-          <div className="mt-4 flex justify-between text-sm">
-            <Link to="/order" className="text-[#452480] hover:underline" data-testid="link-order">هل أنت عميل؟ اطلب كرت</Link>
-          </div>
         </Card>
       </div>
     </div>

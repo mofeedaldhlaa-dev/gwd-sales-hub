@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api, { errText } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Edit, Trash2 } from "lucide-react";
+import { Edit, Trash2, Filter, FileText, CheckCircle2, AlertTriangle } from "lucide-react";
+import PeriodFilter from "@/components/PeriodFilter";
+
+import { getAppNow } from "@/lib/DateService";
+import { monthStartIso, todayIso } from "@/lib/DateService";
+
+const isBalanceCategory = (category) => category?.kind === "balance" || category?.name === "رصيد";
+const isOfflineQueuedResponse = (response) => response?.status === 202 || response?.headers?.["x-offline-queued"] === "1";
+const pdfPreviewConnectionError = "تعذر إرسال ملف PDF للخادم؛ لا يمكن إجراء المعاينة محلياً. تحقق من اتصال الخادم وأعد المحاولة.";
 
 export default function Cards() {
   const [cats, setCats] = useState([]);
@@ -23,15 +31,71 @@ export default function Cards() {
   const [result, setResult] = useState(null);
   const [tab, setTab] = useState("numbers");
   const [editCard, setEditCard] = useState(null);
+  const [pdfFile, setPdfFile] = useState(null);
+  const [pdfPreview, setPdfPreview] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
-  const loadCats = async () => setCats((await api.get("/categories")).data);
-  const loadCards = async () => setCardsList((await api.get("/cards", { params: { q: search, status_filter: statusFilter || undefined } })).data);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // ===== list filters (category + period) =====
+  const [listCategory, setListCategory] = useState(""); // "" = all categories
+  const [period, setPeriod] = useState("day");
+  const [start, setStart] = useState(todayIso());
+  const [end, setEnd] = useState(todayIso());
+
+  const loadCats = async () => setCats(((await api.get("/categories")).data || []).filter((category) => !isBalanceCategory(category)));
+  const loadCards = async () => setCardsList((await api.get("/cards", {
+    params: {
+      q: search,
+      status_filter: statusFilter || undefined,
+      category_id: listCategory || undefined,
+    },
+  })).data);
   useEffect(() => { loadCats(); loadCards(); }, []);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadCards(); }, [search, statusFilter]);
+  useEffect(() => { loadCards(); }, [search, statusFilter, listCategory]);
 
   const parseNumbers = () => numbers.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+
+  const previewPdf = async () => {
+    if (!categoryId) { toast.error("اختر الفئة أولاً"); return; }
+    if (!pdfFile) { toast.error("اختر ملف PDF أولاً"); return; }
+    setPdfLoading(true);
+    try {
+      const form = new FormData();
+      form.append("category_id", categoryId);
+      form.append("file", pdfFile);
+      // Let the browser set the multipart boundary; forcing this header can
+      // make an otherwise valid FormData upload fail before reaching FastAPI.
+      const r = await api.post("/cards/pdf/preview", form, { __skipIdempotency: true, __skipOfflineQueue: true, timeout: 120_000 });
+      if (isOfflineQueuedResponse(r)) {
+        setPdfPreview(null);
+        toast.error(pdfPreviewConnectionError);
+        return;
+      }
+      if (!r.data || typeof r.data.unique_count !== "number") {
+        setPdfPreview(null);
+        toast.error(pdfPreviewConnectionError);
+        return;
+      }
+      setPdfPreview(r.data);
+      if (r.data.status === "ready") toast.success(`تمت معاينة ${r.data.unique_count} كرت بدون تعارض`);
+      else toast.error("توقفت المعاينة: يوجد تكرار أو تعارض في الملف");
+    } catch (e) {
+      setPdfPreview(null);
+      toast.error(!e?.response ? pdfPreviewConnectionError : errText(e));
+    }
+    finally { setPdfLoading(false); }
+  };
+
+  const commitPdf = async () => {
+    if (!pdfPreview || pdfPreview.status !== "ready") return;
+    setPdfLoading(true);
+    try {
+      const r = await api.post("/cards/pdf/commit", { preview_id: pdfPreview.preview_id });
+      setResult(r.data); setPdfPreview(null); setPdfFile(null);
+      toast.success(`تم اعتماد ${r.data.added} كرت من ملف PDF`);
+      loadCards();
+    } catch (e) { toast.error(errText(e)); }
+    finally { setPdfLoading(false); }
+  };
 
   const addNumbers = async () => {
     if (!categoryId) { toast.error("اختر الفئة"); return; }
@@ -68,6 +132,17 @@ export default function Cards() {
     } catch (e) { toast.error(errText(e)); }
   };
 
+  // Combined filtering: category comes from backend; period is applied on the
+  // registered date (created_at) of each card — real data filtering, not cosmetic.
+  const visibleCards = useMemo(() => {
+    return cardsList.filter((c) => {
+      const day = (c.created_at || "").slice(0, 10);
+      if (start && day < start) return false;
+      if (end && day > end) return false;
+      return true;
+    });
+  }, [cardsList, start, end]);
+
   return (
     <div className="space-y-4" data-testid="cards-page">
       <Card className="p-4">
@@ -77,13 +152,29 @@ export default function Cards() {
             <TabsTrigger value="qty" data-testid="tab-qty">كمية بدون أرقام</TabsTrigger>
           </TabsList>
           <TabsContent value="numbers" className="space-y-3">
-            <Select value={categoryId} onValueChange={setCategoryId}>
+            <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setPdfPreview(null); }}>
               <SelectTrigger data-testid="cards-cat"><SelectValue placeholder="اختر الفئة" /></SelectTrigger>
               <SelectContent>{cats.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
             </Select>
             <Textarea rows={10} placeholder="ألصق أرقام الكروت هنا (كل رقم في سطر)" value={numbers} onChange={(e) => setNumbers(e.target.value)} data-testid="cards-numbers" className="font-mono" />
             <div className="text-sm text-slate-500">عدد الأسطر: {parseNumbers().length}</div>
             <Button onClick={addNumbers} className="bg-[#221340]" data-testid="cards-add-numbers">إضافة الكروت</Button>
+            <div className="rounded-xl border border-dashed border-[#BCA9D7] bg-[#FAF8FF] p-3 space-y-2" data-testid="cards-pdf-import">
+              <div className="flex items-center gap-2 font-bold text-[#452480]"><FileText size={16}/> استيراد الكروت من ملف PDF</div>
+              <div className="text-xs text-slate-600">اختر الفئة ثم افحص الملف. لن تتم إضافة أي كرت قبل اعتماد المعاينة، وتتوقف العملية بالكامل عند وجود تكرار أو تعارض.</div>
+              <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                <Input type="file" accept="application/pdf,.pdf" onChange={(e) => { setPdfFile(e.target.files?.[0] || null); setPdfPreview(null); }} data-testid="cards-pdf-file" className="bg-white" />
+                <Button type="button" variant="outline" onClick={previewPdf} disabled={pdfLoading} data-testid="cards-pdf-preview"><FileText size={14} className="ml-1"/> {pdfLoading ? "جارٍ الفحص..." : "فحص ومعاينة"}</Button>
+              </div>
+              {pdfPreview && (
+                <div className={`rounded-lg border p-3 text-sm ${pdfPreview.status === "ready" ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`} data-testid="cards-pdf-preview-result">
+                  <div className="flex items-center gap-2 font-bold">{pdfPreview.status === "ready" ? <CheckCircle2 size={16} className="text-emerald-600"/> : <AlertTriangle size={16} className="text-red-600"/>} {pdfPreview.original_filename}</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 mt-2 text-xs"><span>الصفحات: <b>{pdfPreview.page_count}</b></span><span>المستخرج: <b>{pdfPreview.extracted_count}</b></span><span>الفريد: <b>{pdfPreview.unique_count}</b></span><span>رقمية: <b>{pdfPreview.numeric_count || 0}</b></span><span>حرفية: <b>{pdfPreview.alpha_count || 0}</b></span><span>التعارض: <b>{(pdfPreview.duplicate_numbers?.length || 0) + (pdfPreview.existing_numbers?.length || 0)}</b></span></div>
+                  {pdfPreview.invalid_reasons?.length > 0 && <div className="mt-2 text-red-700">{pdfPreview.invalid_reasons.join(" — ")}</div>}
+                  {pdfPreview.status === "ready" && <Button type="button" onClick={commitPdf} disabled={pdfLoading} className="mt-3 bg-[#221340]" data-testid="cards-pdf-commit"><CheckCircle2 size={14} className="ml-1"/> اعتماد وإضافة الكروت</Button>}
+                </div>
+              )}
+            </div>
             {result && (
               <Card className="p-4 bg-slate-50">
                 <div className="grid grid-cols-3 gap-3 text-sm">
@@ -106,32 +197,62 @@ export default function Cards() {
       </Card>
 
       <Card className="p-4">
-        <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-          <div className="font-bold text-[#221340]">قائمة الكروت المرقمة</div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v==="all"?"":v)}>
-              <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="كل الحالات"/></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">كل الحالات</SelectItem>
-                <SelectItem value="available">متوفر</SelectItem>
-                <SelectItem value="sold">مباع</SelectItem>
-                <SelectItem value="used">مستخدم</SelectItem>
-                <SelectItem value="cancelled">ملغي</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input placeholder="بحث برقم الكرت" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full sm:max-w-xs" data-testid="cards-search" />
+        <div className="font-bold text-[#221340] mb-3">قائمة عرض الكروت المرقمة</div>
+
+        {/* Filters: category + status + period + number search (all work together) */}
+        <div className="space-y-3 bg-slate-50 border rounded-lg p-3 mb-3">
+          <div className="flex items-center gap-2 text-sm text-slate-600"><Filter size={14}/> البحث والتصفية</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">الفئة</label>
+              <Select value={listCategory || "all"} onValueChange={(v) => setListCategory(v === "all" ? "" : v)}>
+                <SelectTrigger data-testid="cards-list-cat"><SelectValue placeholder="كل الفئات"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل الفئات</SelectItem>
+                  {cats.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">الحالة</label>
+              <Select value={statusFilter || "all"} onValueChange={(v) => setStatusFilter(v === "all" ? "" : v)}>
+                <SelectTrigger data-testid="cards-status"><SelectValue placeholder="كل الحالات"/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل الحالات</SelectItem>
+                  <SelectItem value="available">متوفر</SelectItem>
+                  <SelectItem value="sold">مباع</SelectItem>
+                  <SelectItem value="used">مستخدم</SelectItem>
+                  <SelectItem value="cancelled">ملغي</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">بحث برقم الكرت</label>
+              <Input placeholder="رقم الكرت" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="cards-search" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">الفترة (حسب تاريخ التسجيل)</label>
+            <PeriodFilter period={period} start={start} end={end}
+              onChange={({ period: p, start: s, end: e }) => { setPeriod(p); setStart(s); setEnd(e); }}
+              testidPrefix="cards-period" />
           </div>
         </div>
+
+        <div className="text-xs text-slate-500 mb-2" data-testid="cards-count">عدد النتائج: <strong className="text-[#221340]">{visibleCards.length}</strong></div>
+
         <div className="overflow-x-auto">
+          <div className="flex justify-end mb-2"><button type="button" data-testid="cards-export" onClick={() => { try { const rows = [["رقم الكرت","الفئة","الحالة","تاريخ التسجيل"]].concat((visibleCards || []).map((c) => [c.number, c.category_name, c.status, c.created_at || ""])); const csv = "\uFEFF" + rows.map((r) => r.join(",")).join("\n"); const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv;charset=utf-8"})); a.download = "cards.csv"; a.click(); } catch (e) { /* ignore */ } }} className="ms-3 text-xs px-3 py-1 rounded-lg border border-[#221340] text-[#221340] font-bold">تصدير الكروت</button></div>
           <table className="w-full text-sm min-w-[560px]">
-            <thead className="bg-slate-50"><tr className="text-right"><th className="p-2">الرقم</th><th className="p-2">الفئة</th><th className="p-2">الحالة</th><th className="p-2"></th></tr></thead>
+            <thead className="bg-slate-50"><tr className="text-right"><th className="p-2">الرقم</th><th className="p-2">الفئة</th><th className="p-2">الحالة</th><th className="p-2">تاريخ التسجيل</th><th className="p-2"></th></tr></thead>
             <tbody>
-              {cardsList.slice(0, 300).map((c) => (
+              {visibleCards.slice(0, 500).map((c) => (
                 <tr key={c.id} className="border-t border-slate-100">
                   <td className="p-2 font-mono">{c.number}</td>
                   <td className="p-2">{c.category_name}</td>
                   <td className="p-2"><span className={`text-xs px-2 py-0.5 rounded-full ${c.status==='available'?'bg-green-100 text-green-700':c.status==='sold'?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-700'}`}>{c.status==='available'?'متوفر':c.status==='sold'?'مباع':c.status==='used'?'مستخدم':'ملغي'}</span></td>
-                  <td className="p-2 flex gap-1">
+                  <td className="p-2 text-xs text-slate-500">{(c.created_at || "").slice(0, 10)}</td>
+                  <td className="p-2 flex gap-1"><button type="button" data-testid={"card-history-" + c.id} onClick={() => { if (window.gawadCardHistory) window.gawadCardHistory(c.id); }} className="text-xs px-2 py-1 rounded border border-[#221340] text-[#221340]">سجل</button>
                     <Button size="sm" variant="outline" onClick={() => setEditCard({...c})} data-testid={`card-edit-${c.id}`}><Edit size={12}/></Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild><Button size="sm" variant="outline" data-testid={`card-del-${c.id}`}><Trash2 size={12} className="text-red-500"/></Button></AlertDialogTrigger>
@@ -145,7 +266,7 @@ export default function Cards() {
                   </td>
                 </tr>
               ))}
-              {cardsList.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-slate-400">لا توجد كروت</td></tr>}
+              {visibleCards.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-slate-400">لا توجد كروت مطابقة</td></tr>}
             </tbody>
           </table>
         </div>

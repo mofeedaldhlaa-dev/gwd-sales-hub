@@ -26,6 +26,31 @@ main, .min-w-0-fix { min-width: 0; }
 img, svg, video, canvas, iframe { max-width: 100%; height: auto; }
 .num, code, pre { word-break: break-word; overflow-wrap: anywhere; }
 
+/* Dashboard overview amounts: keep large values readable on narrow phones. */
+.dash-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dash-stat-card { min-width: 0; }
+.dash-stat-value {
+  min-width: 0;
+  color: inherit;
+  font-size: clamp(1.05rem, 3.2vw, 1.875rem);
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  direction: ltr;
+  unicode-bidi: plaintext;
+  text-align: right;
+  word-break: normal !important;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 479px) {
+  .dash-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-stat-card { padding: .5rem .6rem !important; }
+  .dash-stat-value { font-size: clamp(1.2rem, 7vw, 1.6rem); letter-spacing: -0.02em; }
+}
+@media (min-width: 1024px) {
+  .dash-stat-value { font-size: clamp(1.35rem, 2.1vw, 1.875rem); }
+}
+
 /* Tables that exceed viewport: allow horizontal scroll INSIDE
    the container only, not the whole page. Any Card wrapping a
    table should have overflow-x-auto; we also expose a utility
@@ -48,6 +73,24 @@ table { width: 100%; }
 /* Dialogs already use w-[calc(100vw-2rem)] max-w-lg — reinforce
    height cap so long forms remain scrollable on short screens. */
 [role="dialog"] { max-height: 92vh; }
+
+/* The favorites picker is anchored beside an input on desktop, but must become
+   a centered modal-like panel on phones so it is never clipped by the card. */
+.po-favorite-popover { max-height: min(72vh, 420px); overflow-y: auto; }
+@media (max-width: 639px) {
+  .po-favorite-popover {
+    position: fixed !important;
+    left: 1rem !important;
+    right: 1rem !important;
+    top: 50% !important;
+    bottom: auto !important;
+    width: auto !important;
+    max-width: 24rem;
+    margin: 0 auto !important;
+    transform: translateY(-50%);
+    max-height: 70vh;
+  }
+}
 
 /* Toaster (sonner) inside viewport on mobile */
 [data-sonner-toaster] { max-width: calc(100vw - 24px) !important; }
@@ -97,6 +140,697 @@ table { width: 100%; }
   border: 1px solid rgba(212,175,55,0.15);
 }
 
+/* ==========================================================
+   Public card portal — Royal Fintech Glassmorphism
+   Scoped to [data-testid="public-order"] so admin screens and
+   the original transaction rules remain untouched.
+   ========================================================== */
+[data-testid="public-order"].po-portal-shell {
+  --po-purple: #1B0F35;
+  --po-purple-2: #28164B;
+  --po-violet: #432772;
+  --po-gold: #D4AF37;
+  --po-gold-light: #F1D77A;
+  --po-cream: #FBF8F1;
+  --po-cream-2: #F4EFE5;
+  --po-muted: #766C86;
+  --po-line: rgba(27, 15, 53, .11);
+  --po-radius-sm: 14px;
+  --po-radius-md: 22px;
+  --po-radius-lg: 30px;
+  --po-radius-xl: 40px;
+  --po-shadow-1: 0 6px 18px rgba(27,15,53,.08);
+  --po-shadow-2: 0 18px 45px rgba(27,15,53,.13);
+  --po-shadow-3: 0 30px 80px rgba(27,15,53,.09);
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(27,15,53,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(27,15,53,.035) 1px, transparent 1px),
+    radial-gradient(circle at 8% 3%, rgba(212,175,55,.18), transparent 27%),
+    radial-gradient(circle at 96% 18%, rgba(67,39,114,.16), transparent 30%),
+    radial-gradient(circle at 48% 100%, rgba(255,255,255,.84), transparent 42%),
+    var(--po-cream);
+  background-size: 32px 32px, 32px 32px, auto, auto, auto, auto;
+}
+[data-testid="public-order"].po-portal-shell::before,
+[data-testid="public-order"].po-portal-shell::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(4px);
+}
+[data-testid="public-order"].po-portal-shell::before {
+  width: 230px; height: 230px; top: 190px; left: -170px;
+  background: rgba(212,175,55,.08);
+}
+[data-testid="public-order"].po-portal-shell::after {
+  width: 280px; height: 280px; right: -210px; bottom: 100px;
+  background: rgba(67,39,114,.08);
+}
+[data-testid="public-order"] .po-portal-width { position: relative; z-index: 1; width: min(100%, 510px); }
+[data-testid="public-order"] .po-portal-width { width: min(100%, 440px); }
+[data-testid="public-order"] .po-topbar { margin-bottom: 22px; }
+[data-testid="public-order"] .po-topbar img,
+[data-testid="public-order"] .po-topbar .h-11 {
+  width: 52px !important;
+  height: 52px !important;
+  padding: 3px;
+  object-fit: contain;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #FBF8F1, #EFE7D1);
+  border: 1px solid rgba(212,175,55,.82);
+  box-shadow: var(--po-shadow-1), 0 0 0 3px rgba(212,175,55,.12), inset 0 1px 0 rgba(255,255,255,.9);
+}
+[data-testid="public-order"] .po-public-brand .po-brand-name { font-size: 1.5rem; letter-spacing: -.02em; }
+[data-testid="public-order"] .po-public-brand .po-brand-subtitle { font-size: .78rem; }
+[data-testid="public-order"] .po-public-brand img { width: 58px !important; height: 58px !important; }
+[data-testid="public-order"] .po-login-welcome {
+  position: relative;
+  margin: 0 0 22px;
+  padding: 10px 14px 10px 4px;
+  border-right: 4px solid var(--po-gold);
+  border-radius: 0 22px 22px 0;
+  background: linear-gradient(270deg, rgba(244,240,250,.96), rgba(255,255,255,.12));
+}
+[data-testid="public-order"] .po-login-welcome p { max-width: 310px; margin-right: 0; }
+[data-testid="public-order"] .po-login-welcome-title {
+  color: #1B0F35;
+  font-size: 1.42rem;
+  font-weight: 900;
+  line-height: 1.35;
+  letter-spacing: -.025em;
+}
+[data-testid="public-order"] .po-login-welcome-subtitle {
+  display: inline-block;
+  margin-top: 5px;
+  color: #6C4BC9;
+  font-size: .94rem;
+  font-weight: 900;
+  line-height: 1.4;
+}
+[data-testid="public-order"] .po-topbar button {
+  border-radius: var(--po-radius-xl);
+  border-color: rgba(27,15,53,.12);
+  background: rgba(251,248,241,.72);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--po-shadow-1), 0 1px 3px rgba(27,15,53,.04);
+}
+[data-testid="public-order"] .po-main-card,
+[data-testid="public-order"] .po-glass-panel,
+[data-testid="public-order"] .po-panel,
+[data-testid="public-order"] [data-testid="po-all-operations"] > div,
+[data-testid="public-order"] [data-testid="po-stmt-preview-paper"] {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--po-radius-lg);
+  border-color: rgba(27,15,53,.10);
+  background: rgba(251,248,241,.64);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--po-shadow-1), var(--po-shadow-2), var(--po-shadow-3);
+}
+[data-testid="public-order"] .po-main-card::before,
+[data-testid="public-order"] .po-glass-panel::before,
+[data-testid="public-order"] .po-panel::before,
+[data-testid="public-order"] [data-testid="po-all-operations"] > div::before,
+[data-testid="public-order"] [data-testid="po-stmt-preview-paper"]::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 9%; right: 9%; height: 2px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, transparent, var(--po-gold), transparent);
+}
+[data-testid="public-order"] .po-main-card { background: rgba(251,248,241,.76); }
+[data-testid="public-order"] .po-dashboard-content { display: grid; gap: 14px; }
+[data-testid="public-order"] .po-hero-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 155px;
+  padding: 18px;
+  border: 0;
+  border-radius: var(--po-radius-lg);
+  color: #fff;
+  background:
+    radial-gradient(circle at 88% 8%, rgba(212,175,55,.34), transparent 30%),
+    linear-gradient(145deg, var(--po-violet), var(--po-purple));
+  box-shadow: var(--po-shadow-1), var(--po-shadow-2), var(--po-shadow-3);
+}
+[data-testid="public-order"] .po-hero-card::before {
+  content: ""; position: absolute; width: 210px; height: 210px; left: -100px; bottom: -132px;
+  border: 1px solid rgba(255,255,255,.14); border-radius: 50%;
+  box-shadow: 0 0 0 25px rgba(255,255,255,.04), 0 0 0 54px rgba(255,255,255,.025);
+}
+[data-testid="public-order"] .po-hero-card::after {
+  content: ""; position: absolute; left: 8%; right: 8%; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--po-gold-light), transparent);
+}
+[data-testid="public-order"] .po-hero-card > div { position: relative; z-index: 1; }
+[data-testid="public-order"] .po-hero-card [data-testid="po-current-balance"] { padding: 8px 10px; border: 1px solid rgba(212,175,55,.55); border-radius: var(--po-radius-xl); background: rgba(251,248,241,.12); backdrop-filter: blur(12px); }
+[data-testid="public-order"] .po-hero-card [data-testid="po-current-balance"] > div:first-child > div:first-child { color: rgba(255,255,255,.68); }
+[data-testid="public-order"] .po-hero-card [data-testid="po-current-balance"] .text-sm { color: #fff !important; }
+[data-testid="public-order"] .po-hero-card [data-testid="po-balance-toggle"] { color: var(--po-gold-light); }
+[data-testid="public-order"] .po-hero-card [data-testid="po-welcome-name"] { color: #fff; font-size: 1.3rem; }
+[data-testid="public-order"] .po-hero-card [data-testid="po-welcome-name"]::before { content: ""; }
+[data-testid="public-order"] .po-role-switch { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid rgba(212,175,55,.44); border-radius: var(--po-radius-xl); background: rgba(251,248,241,.10); backdrop-filter: blur(12px); }
+[data-testid="public-order"] .po-role-switch > span { min-width: 68px; padding: 5px 9px; border-radius: var(--po-radius-xl); text-align: center; font-size: 10px; font-weight: 800; }
+[data-testid="public-order"] .po-role-active { color: var(--po-purple); background: var(--po-gold-light); box-shadow: var(--po-shadow-1); }
+[data-testid="public-order"] .po-role-muted { color: rgba(251,248,241,.68); }
+[data-testid="public-order"] .po-service-tabs { border-radius: 22px !important; background: var(--po-cream-2) !important; }
+[data-testid="public-order"] .po-service-tabs button { min-height: 46px; border-radius: 17px; }
+[data-testid="public-order"] .po-service-tabs button[aria-selected="true"] { color: var(--po-purple) !important; background: #fff !important; box-shadow: 0 6px 18px rgba(27,15,53,.08); }
+[data-testid="public-order"] .po-bottom-dock {
+  position: relative; left: auto; bottom: auto; transform: none; width: 100%; z-index: 2; margin-top: 18px !important; padding: 8px !important;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: var(--po-radius-lg) !important;
+  background: rgba(27,15,53,.94) !important;
+  box-shadow: var(--po-shadow-1), var(--po-shadow-2), var(--po-shadow-3) !important;
+  backdrop-filter: blur(18px);
+}
+[data-testid="public-order"] .po-bottom-dock button { min-height: 60px; border-radius: 22px; transition: transform .16s ease, background .18s ease, color .18s ease; }
+[data-testid="public-order"] .po-bottom-dock button[class*='bg-[#D4AF37]'] { color: var(--po-purple) !important; background: var(--po-gold-light) !important; box-shadow: 0 6px 18px rgba(27,15,53,.12); }
+[data-testid="public-order"] .po-dialog-surface { border-radius: var(--po-radius-lg) !important; border-color: rgba(27,15,53,.10) !important; background: rgba(251,248,241,.96) !important; backdrop-filter: blur(18px); box-shadow: var(--po-shadow-1), var(--po-shadow-2), var(--po-shadow-3) !important; }
+[data-testid="public-order"] .po-dialog-surface::before { content: ""; position: absolute; top: 0; left: 9%; right: 9%; height: 2px; background: linear-gradient(90deg, transparent, var(--po-gold), transparent); }
+[data-testid="public-order"] .po-notifs-surface { background: linear-gradient(180deg, #FFFEFA 0%, #F8F5FE 100%) !important; }
+[data-testid="public-order"] .po-notifs-header { padding-bottom: 12px; border-bottom: 1px solid rgba(212,175,55,.28); }
+[data-testid="public-order"] .po-notifs-header [data-slot="dialog-title"] { font-size: 1.1rem; font-weight: 900; }
+[data-testid="public-order"] .po-notifs-title-icon { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 14px; background: linear-gradient(145deg, #F4DE8F, #D4AF37); color: #1B0F35; box-shadow: 0 6px 14px -8px rgba(212,175,55,.9); }
+[data-testid="public-order"] .po-notifs-list { padding-top: 4px; }
+[data-testid="public-order"] .po-notif-item { position: relative; overflow: hidden; transition: transform .16s ease, box-shadow .18s ease, border-color .18s ease; }
+[data-testid="public-order"] .po-notif-item { display: flex; align-items: flex-start; gap: 10px; text-align: right; min-height: 78px; }
+[data-testid="public-order"] .po-notif-item-icon { display: inline-grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; margin-top: 1px; border-radius: 14px; color: #1B0F35; background: linear-gradient(145deg, #F4DE8F, #D4AF37); box-shadow: 0 6px 14px -8px rgba(212,175,55,.9); }
+[data-testid="public-order"] .po-notif-item-body { display: block; min-width: 0; flex: 1; }
+[data-testid="public-order"] .po-notif-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+[data-testid="public-order"] .po-notif-item-message { display: block; margin-top: 5px; color: #5F5870; font-size: .75rem; line-height: 1.75; white-space: pre-line; }
+[data-testid="public-order"] .po-notif-item-date { display: block; margin-top: 5px; color: #9A91AA; font-size: .65rem; }
+[data-testid="public-order"] .po-notif-item::before { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 3px; background: var(--po-gold); }
+[data-testid="public-order"] .po-notif-item:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -12px rgba(27,15,53,.45); }
+[data-testid="public-order"] .po-notif-unread { border-color: rgba(212,175,55,.62) !important; background: linear-gradient(135deg, #FFFDF4, #F8F2DE) !important; }
+[data-testid="public-order"] .po-notif-read { background: rgba(255,255,255,.82) !important; }
+[data-testid="public-order"] .po-notifs-empty { border: 1px dashed rgba(69,36,128,.2); border-radius: 22px; background: rgba(248,247,252,.7); }
+[data-testid="public-order"] .po-main-card .rounded-2xl.border,
+[data-testid="public-order"] .po-main-card .rounded-xl.border { border-color: rgba(27,15,53,.10); box-shadow: 0 6px 18px rgba(27,15,53,.06); }
+[data-testid="public-order"] .po-main-card .bg-\[\#F8F7FC\] { background: rgba(248,247,252,.76); }
+[data-testid="public-order"] .po-main-card button.bg-\[\#221340\],
+[data-testid="public-order"] .po-main-card button.bg-\[\#452480\] { position: relative; overflow: hidden; box-shadow: 0 6px 18px rgba(27,15,53,.08), 0 12px 24px rgba(27,15,53,.14); }
+[data-testid="public-order"] .po-main-card button.bg-\[\#221340\]::after,
+[data-testid="public-order"] .po-main-card button.bg-\[\#452480\]::after { content: ""; position: absolute; top: 0; left: 14%; right: 14%; height: 2px; background: var(--po-gold-light); }
+[data-testid="public-order"] .po-main-card input,
+[data-testid="public-order"] .po-main-card [role="combobox"] { border-radius: var(--po-radius-md); }
+[data-testid="public-order"] .po-main-card input,
+[data-testid="public-order"] .po-main-card textarea,
+[data-testid="public-order"] .po-main-card [role="combobox"] { border-color: rgba(212,175,55,.46) !important; background: rgba(251,248,241,.48) !important; backdrop-filter: blur(10px); }
+[data-testid="public-order"] .po-main-card [class~="rounded-xl"] { border-radius: var(--po-radius-sm) !important; }
+[data-testid="public-order"] .po-main-card [class~="rounded-2xl"] { border-radius: var(--po-radius-md) !important; }
+[data-testid="public-order"] .po-main-card [class~="rounded-full"] { border-radius: var(--po-radius-xl) !important; }
+[data-testid="public-order"] .po-main-card button { transition: transform .16s cubic-bezier(.23,1,.32,1), box-shadow .18s ease, background .18s ease; }
+[data-testid="public-order"] .po-main-card button:active,
+[data-testid="public-order"] .po-bottom-dock button:active { transform: scale(.97); }
+[data-testid="public-order"] .po-main-card button.bg-\[\#D4AF37\],
+[data-testid="public-order"] .po-main-card button.bg-\[\#221340\],
+[data-testid="public-order"] .po-main-card button.bg-\[\#452480\] { background: linear-gradient(135deg, #F1D77A, #D4AF37) !important; color: var(--po-purple) !important; }
+[data-testid="public-order"] .po-dialog-surface button.bg-\[\#452480\],
+[data-testid="public-order"] .po-dialog-surface button.bg-\[\#221340\] { position: relative; overflow: hidden; background: linear-gradient(135deg, #F1D77A, #D4AF37) !important; color: var(--po-purple) !important; }
+[data-testid="public-order"] .po-dialog-surface button.bg-\[\#452480\]::after,
+[data-testid="public-order"] .po-dialog-surface button.bg-\[\#221340\]::after { content: ""; position: absolute; top: 0; left: 14%; right: 14%; height: 2px; background: var(--po-purple); }
+[data-testid="public-order"] .po-main-card .border-red-300,
+[data-testid="public-order"] .po-main-card .border-red-400,
+[data-testid="public-order"] .po-main-card .border-amber-400,
+[data-testid="public-order"] .po-main-card .border-emerald-200 { border-color: rgba(212,175,55,.55) !important; }
+@media (max-width: 640px) {
+  [data-testid="public-order"].po-portal-shell { padding-top: 16px; }
+  [data-testid="public-order"] .po-main-card { border-radius: 30px; padding: 18px !important; }
+  [data-testid="public-order"] .po-hero-card { margin-inline: -2px; }
+}
+
+/* Attached Royal Fintech preview styling — visual only. */
+[data-testid="public-order"].po-portal-shell {
+  background: #FFFFFF;
+  color: #1E1339;
+}
+[data-testid="public-order"].po-portal-shell::before {
+  inset: 0;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  filter: none;
+  background: #FFFFFF;
+  opacity: 1;
+}
+[data-testid="public-order"] .po-dashboard-card {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  padding: 0 !important;
+}
+[data-testid="public-order"] .po-dashboard-card::before { display: none; }
+[data-testid="public-order"] .po-dashboard-content { gap: 14px; }
+[data-testid="public-order"] .po-dashboard-card .po-panel,
+[data-testid="public-order"] .po-dashboard-card .po-section-card,
+[data-testid="public-order"] .po-dashboard-card [data-testid="po-all-operations"] > div,
+[data-testid="public-order"] .po-dashboard-card [data-testid="po-account-info"] {
+  background: #fff;
+  border-color: #EDE7FA;
+  box-shadow: 0 4px 16px -6px rgba(42,27,82,.14);
+}
+[data-testid="public-order"] .po-dashboard-card .po-service-tabs { margin-bottom: 0; }
+[data-testid="public-order"] .po-dashboard-card .po-service-tabs { display: none; }
+[data-testid="public-order"] .po-topbar button {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+}
+[data-testid="public-order"] .po-auth-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 40px !important;
+  padding: 26px 22px !important;
+  background: #fff !important;
+  border-color: #EDE7FA !important;
+  box-shadow: 0 18px 40px -20px rgba(42,27,82,.55) !important;
+}
+[data-testid="public-order"] .po-auth-card::before,
+[data-testid="public-order"] .po-form-dialog::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #9B7BE8, #D4AF37, #9B7BE8);
+}
+[data-testid="public-order"] .po-form-hero { margin-bottom: 22px; }
+[data-testid="public-order"] .po-badge-mark {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  background: linear-gradient(140deg, #1B0F35, #6C4BC9);
+  color: #F4DE8F;
+  font: 900 26px Georgia, serif;
+  box-shadow: 0 20px 40px -20px rgba(42,27,82,1);
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-auth-tabs"] {
+  gap: 4px;
+  padding: 4px;
+  border-radius: 16px;
+  background: #EFE9FF;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-auth-tabs"] button {
+  border-radius: 12px;
+  color: #8A7FA6;
+  transition: .24s cubic-bezier(.2,.9,.25,1);
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-auth-tabs"] button[aria-selected="true"] {
+  background: #fff;
+  color: #6C4BC9;
+  box-shadow: 0 4px 14px -6px rgba(42,27,82,.35);
+}
+[data-testid="public-order"] .po-auth-card label,
+[data-testid="public-order"] .po-auth-card label span,
+[data-testid="public-order"] .po-form-dialog label,
+[data-testid="public-order"] .po-form-dialog label span { color: #1B0F35; }
+[data-testid="public-order"] .po-auth-card input,
+[data-testid="public-order"] .po-auth-card [role="combobox"],
+[data-testid="public-order"] .po-form-dialog input,
+[data-testid="public-order"] .po-form-dialog [role="combobox"] {
+  min-height: 54px;
+  border-radius: 16px !important;
+  background: #F7F4FC !important;
+  border-color: transparent !important;
+  color: #1E1339;
+}
+[data-testid="public-order"] .po-auth-card input:focus,
+[data-testid="public-order"] .po-form-dialog input:focus {
+  background: #fff !important;
+  border-color: #6C4BC9 !important;
+  box-shadow: 0 0 0 4px rgba(108,75,201,.14) !important;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-phone"] > div:first-child,
+[data-testid="public-order"] .po-form-dialog [data-testid="fp-phone"] > div:first-child,
+[data-testid="public-order"] .po-form-dialog [data-testid="reg-phone"] > div:first-child { min-height: 54px; border-radius: 16px; background: #F7F4FC; border-color: transparent; }
+
+/* Light login reference design — intentionally scoped to the unauthenticated screen. */
+[data-testid="public-order"].po-login-shell {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(180deg, #F9FCFF 0%, #EEF6FF 52%, #E6F1FF 100%) !important;
+  color: #12264A !important;
+}
+[data-testid="public-order"].po-login-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  opacity: .62;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(116,151,190,.11) 47%, rgba(116,151,190,.11) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(116,151,190,.08) 47%, rgba(116,151,190,.08) 49%, transparent 50%),
+    linear-gradient(135deg, rgba(255,255,255,.72), transparent 42%),
+    radial-gradient(560px 340px at 50% -12%, rgba(255,255,255,.94), transparent 76%);
+  background-size: 74px 74px, 74px 74px, auto, auto;
+  pointer-events: none;
+}
+[data-testid="public-order"].po-login-shell::after {
+  content: "";
+  position: absolute;
+  right: -18%;
+  bottom: -8%;
+  left: -18%;
+  z-index: -1;
+  height: 18%;
+  border-radius: 50% 50% 0 0;
+  background: linear-gradient(180deg, rgba(183,216,247,.32), rgba(225,241,255,.08));
+  filter: blur(10px);
+  pointer-events: none;
+}
+[data-testid="public-order"].po-login-shell .po-login-brand { color: #12264A; }
+[data-testid="public-order"].po-login-shell .po-login-brand .po-brand-name,
+[data-testid="public-order"].po-login-shell .po-login-brand .po-brand-subtitle { color: #12264A !important; }
+[data-testid="public-order"].po-login-shell .po-login-brand .po-brand-subtitle { color: #536985 !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card {
+  border: 1px solid rgba(177,196,218,.58) !important;
+  border-radius: 38px !important;
+  background: rgba(255,255,255,.96) !important;
+  box-shadow: 0 18px 44px rgba(62,96,132,.13), 0 3px 10px rgba(62,96,132,.05) !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-card::before { display: none; }
+[data-testid="public-order"].po-login-shell .po-login-welcome-title,
+[data-testid="public-order"].po-login-shell .po-auth-card label { color: #101D3D !important; }
+[data-testid="public-order"].po-login-shell .po-login-welcome p { color: #66758A !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card input {
+  color: #27364D !important;
+  caret-color: #2563C7;
+  background: #F5F7FA !important;
+  border: 1px solid #D7DDE6 !important;
+  box-shadow: inset 0 1px 1px rgba(42,61,83,.025) !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-card input::placeholder { color: #7F8792 !important; opacity: 1; }
+[data-testid="public-order"].po-login-shell .po-auth-card input:focus {
+  background: #FBFDFF !important;
+  border-color: #7EA9DE !important;
+  box-shadow: 0 0 0 4px rgba(59,130,246,.12) !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-card .po-phone-field {
+  border-color: #D7DDE6;
+  background: #F5F7FA;
+  box-shadow: inset 0 1px 1px rgba(42,61,83,.025);
+}
+[data-testid="public-order"].po-login-shell .po-auth-card .po-phone-field > div:first-child { background: #EEF2F7; }
+[data-testid="public-order"].po-login-shell .po-auth-card .po-phone-field input { background: transparent !important; border-color: transparent !important; }
+[data-testid="public-order"].po-login-shell .po-filled-field-icon { color: #7893B5 !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card [data-testid="po-forgot"] { color: #245C9D !important; text-decoration: none !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card [data-testid="po-login"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #1B0F35, #2A1B52 45%, #6C4BC9) !important;
+  color: #fff !important;
+  box-shadow: 0 20px 38px -18px rgba(42,27,82,1), inset 0 1px 0 rgba(255,255,255,.18) !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-card [data-testid="po-login"]:hover { background: linear-gradient(135deg, #1B0F35, #2A1B52 45%, #6C4BC9) !important; }
+[data-testid="public-order"].po-login-shell .po-register-button {
+  color: #101D3D;
+  background: linear-gradient(180deg, #F1F3F7, #E5E9EF);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 5px 12px rgba(62,96,132,.06);
+}
+[data-testid="public-order"].po-login-shell .po-login-spinner-box { border-color: rgba(59,130,246,.20); background: #F2F6FC; color: #3479DD; }
+[data-testid="public-order"].po-login-shell .po-auth-card [data-testid="po-phone"] { color: #27364D !important; }
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"],
+[data-testid="public-order"] .po-form-dialog button[type="submit"] {
+  position: relative;
+  overflow: hidden;
+  height: 58px;
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #1B0F35, #2A1B52 45%, #6C4BC9) !important;
+  color: #fff !important;
+  box-shadow: 0 20px 38px -18px rgba(42,27,82,1), inset 0 1px 0 rgba(255,255,255,.18) !important;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"]::after,
+[data-testid="public-order"] .po-form-dialog button[type="submit"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #F4DE8F, transparent);
+}
+
+/* Login screen — reference layout, scoped to the unauthenticated portal only. */
+[data-testid="public-order"] .po-login-brand {
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+[data-testid="public-order"] .po-login-brand > div:first-child {
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+}
+[data-testid="public-order"] .po-login-brand img {
+  width: 86px !important;
+  height: 86px !important;
+  padding: 5px;
+  border-radius: 30px;
+  box-shadow: 0 9px 22px rgba(27,15,53,.12), 0 0 0 3px rgba(212,175,55,.10), inset 0 1px 0 rgba(255,255,255,.95);
+}
+[data-testid="public-order"] .po-login-brand .po-brand-name {
+  font-size: clamp(1.8rem, 8vw, 2.15rem);
+  letter-spacing: .015em;
+  line-height: 1.1;
+}
+[data-testid="public-order"] .po-login-brand .po-brand-subtitle {
+  margin-top: 4px;
+  font-size: .92rem;
+  color: #4E4562;
+}
+[data-testid="public-order"] .po-auth-card {
+  padding: 30px 22px 26px !important;
+}
+[data-testid="public-order"] .po-login-welcome {
+  margin-bottom: 26px;
+  padding: 0;
+  border-right: 0;
+  border-radius: 0;
+  background: transparent;
+}
+[data-testid="public-order"] .po-login-welcome-title {
+  font-size: clamp(1.55rem, 7vw, 1.9rem);
+  line-height: 1.4;
+}
+[data-testid="public-order"] .po-login-welcome p {
+  max-width: none;
+  margin-top: 8px;
+  color: #5F5A68;
+  font-size: .96rem;
+  line-height: 1.8;
+}
+[data-testid="public-order"] .po-auth-card input,
+[data-testid="public-order"] .po-auth-card [role="combobox"] {
+  min-height: 58px;
+  border: 1px solid #DADBE2 !important;
+  border-radius: 18px !important;
+  background: #fff !important;
+  box-shadow: 0 4px 13px rgba(27,15,53,.035);
+}
+[data-testid="public-order"] .po-auth-card .po-phone-field {
+  width: 100%;
+  min-height: 58px;
+  gap: 6px;
+  padding: 1px;
+  border: 1px solid #DADBE2;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 4px 13px rgba(27,15,53,.035);
+}
+[data-testid="public-order"] .po-auth-card .po-phone-field > div:first-child {
+  min-height: 54px;
+  border: 0;
+  border-radius: 16px;
+  background: #F8F8FB;
+}
+[data-testid="public-order"] .po-auth-card .po-phone-field > div:first-child input {
+  min-height: 54px;
+  border: 0 !important;
+  box-shadow: none;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-password"] {
+  padding-right: 44px;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"] {
+  margin-top: 2px;
+  height: 62px;
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #3D78E8, #2F63D4) !important;
+  box-shadow: 0 12px 24px rgba(46,99,212,.20), inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"]:disabled {
+  cursor: wait;
+  opacity: .86;
+}
+[data-testid="public-order"] .po-register-button {
+  width: 100%;
+  min-height: 58px;
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #F0F1F6, #E5E6EC);
+  color: #1B0F35;
+  font-size: 1.18rem;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.88), 0 5px 12px rgba(27,15,53,.04);
+  transition: background .2s ease, transform .2s ease;
+}
+[data-testid="public-order"] .po-register-button:hover {
+  background: linear-gradient(180deg, #E8E9F0, #DCDDE5);
+}
+[data-testid="public-order"] .po-register-button:active { transform: translateY(1px); }
+[data-testid="public-order"] .po-login-spinner-box {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  margin: 0 auto;
+  border: 1px solid rgba(69,36,128,.16);
+  border-radius: 18px;
+  background: #F7F8FC;
+  color: #3D78E8;
+  box-shadow: 0 7px 18px rgba(27,15,53,.08), inset 0 1px 0 rgba(255,255,255,.95);
+}
+[data-testid="public-order"] .po-login-spinner {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+[data-testid="public-order"] .po-login-spinner i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 4px;
+  height: 10px;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: 50% 18px;
+  animation: po-login-spinner-fade 1s linear infinite;
+}
+@keyframes po-login-spinner-fade {
+  0%, 100% { opacity: .22; }
+  38% { opacity: 1; }
+}
+@media (max-width: 420px) {
+  [data-testid="public-order"] .po-login-brand img { width: 76px !important; height: 76px !important; }
+  [data-testid="public-order"] .po-auth-card { padding-inline: 17px !important; }
+}
+[data-testid="public-order"] .po-form-dialog {
+  position: relative;
+  overflow: hidden;
+  border-radius: 40px !important;
+  background: #fff !important;
+  border-color: #EDE7FA !important;
+  box-shadow: 0 18px 40px -20px rgba(42,27,82,.55) !important;
+}
+.po-form-dialog::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #9B7BE8, #D4AF37, #9B7BE8);
+}
+.po-form-dialog input,
+.po-form-dialog [role="combobox"] {
+  min-height: 54px;
+  border-radius: 16px !important;
+  background: #F7F4FC !important;
+  border-color: transparent !important;
+  color: #1E1339;
+}
+.po-form-dialog input:focus { background: #fff !important; border-color: #6C4BC9 !important; box-shadow: 0 0 0 4px rgba(108,75,201,.14) !important; }
+.po-form-dialog button[type="submit"] {
+  position: relative;
+  overflow: hidden;
+  height: 58px;
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #1B0F35, #2A1B52 45%, #6C4BC9) !important;
+  color: #fff !important;
+  box-shadow: 0 20px 38px -18px rgba(42,27,82,1), inset 0 1px 0 rgba(255,255,255,.18) !important;
+}
+.po-form-dialog button[type="submit"]::after { content: ""; position: absolute; top: 0; right: 0; left: 0; height: 2px; background: linear-gradient(90deg, transparent, #F4DE8F, transparent); }
+.po-form-dialog [data-testid$="-phone"] > div:first-child { min-height: 54px; border-radius: 16px; background: #F7F4FC; border-color: transparent; }
+
+[data-testid="public-order"] .po-dashboard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 4px 14px;
+}
+[data-testid="public-order"] .po-dashboard-head .text-xl { color: #1B0F35 !important; }
+[data-testid="public-order"] .po-hero-card {
+  min-height: 0;
+  margin-bottom: 14px;
+  padding: 21px 20px 18px;
+  border-radius: 30px;
+  background: radial-gradient(600px 300px at 100% 0%, rgba(155,123,232,.5), transparent 60%), linear-gradient(150deg, #1B0F35 0%, #2A1B52 45%, #3A2468 100%);
+}
+[data-testid="public-order"] .po-hero-head,
+[data-testid="public-order"] .po-hero-value,
+[data-testid="public-order"] .po-hero-actions { position: relative; z-index: 2; }
+[data-testid="public-order"] .po-chip-light { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.10); border: 1px solid rgba(244,222,143,.32); color: #F4DE8F; font-size: 10.5px; font-weight: 900; }
+[data-testid="public-order"] .po-hero-value { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+[data-testid="public-order"] .po-balance-amount { color: #fff; font-size: 36px; font-weight: 900; line-height: 1; letter-spacing: -1.2px; text-shadow: 0 2px 20px rgba(155,123,232,.35); }
+[data-testid="public-order"] .po-balance-unit { padding: 4px 9px; border-radius: 999px; background: rgba(244,222,143,.14); border: 1px solid rgba(244,222,143,.3); color: #F4DE8F; font-size: 12px; font-weight: 900; }
+[data-testid="public-order"] .po-balance-masked { letter-spacing: .15em; color: #9B7BE8; }
+[data-testid="public-order"] .po-hero-eye { position: absolute; top: 22px; left: 22px; z-index: 3; width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2); color: #F4DE8F; }
+[data-testid="public-order"] .po-outside-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0 2px 4px; }
+[data-testid="public-order"] .po-outside-actions.po-card-only { grid-template-columns: 1fr; }
+[data-testid="public-order"] .po-outside-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 48px; border: 1px solid #E4D9F5; border-radius: 22px; background: #fff; color: #452480; font-size: 12px; font-weight: 900; box-shadow: 0 4px 16px -6px rgba(42,27,82,.18); transition: transform .16s ease, box-shadow .18s ease, background .18s ease; }
+[data-testid="public-order"] .po-outside-action:active { transform: scale(.97); }
+[data-testid="public-order"] .po-outside-action-gold { border-color: #F0E2B4; background: linear-gradient(135deg, #FFFDF5, #FBF3D9); color: #8A6911; }
+[data-testid="public-order"] .po-outside-action-icon { color: #8A6911; transition: color .18s ease, transform .18s ease; }
+[data-testid="public-order"] .po-outside-action-active { border-color: #6C4BC9; background: linear-gradient(135deg, #1B0F35, #432772); color: #fff; box-shadow: 0 10px 24px -12px rgba(27,15,53,.95); }
+[data-testid="public-order"] .po-outside-action-active .po-outside-action-icon { color: #F4DE8F; transform: scale(1.08); }
+[data-testid="public-order"] .po-outside-action-transfer-active { border-color: #D4AF37; background: linear-gradient(135deg, #432772, #6C4BC9); }
+[data-testid="public-order"] .po-quick-title { display: flex; align-items: center; justify-content: space-between; margin: 6px 4px 12px; }
+[data-testid="public-order"] .po-quick-title h2 { margin: 0; color: #1B0F35; font-size: 15px; font-weight: 900; }
+[data-testid="public-order"] .po-quick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
+[data-testid="public-order"] .po-quick-card { position: relative; overflow: hidden; padding: 16px 14px 14px; border: 1px solid #EDE7FA; border-radius: 30px; background: #fff; box-shadow: 0 4px 16px -6px rgba(42,27,82,.14); text-align: right; transition: .24s cubic-bezier(.2,.9,.25,1); }
+[data-testid="public-order"] .po-quick-card:active { transform: translateY(2px); box-shadow: 0 6px 14px -8px rgba(42,27,82,.3); }
+[data-testid="public-order"] .po-quick-card .po-quick-icon { width: 42px; height: 42px; margin-bottom: 10px; display: grid; place-items: center; border-radius: 14px; background: linear-gradient(140deg, #EFE9FF, #FBF7FF); color: #6C4BC9; border: 1px solid #E8DEFF; }
+[data-testid="public-order"] .po-quick-card.po-quick-gold { border-color: #F5E8BC; background: linear-gradient(180deg, #fff, #FFFEF9); }
+[data-testid="public-order"] .po-quick-card.po-quick-gold .po-quick-icon { background: linear-gradient(140deg, #FBF3D9, #FFFCF1); color: #A6821A; border-color: #F0E2B4; }
+[data-testid="public-order"] .po-quick-card h3 { margin: 0; color: #1B0F35; font-size: 13.5px; font-weight: 900; }
+[data-testid="public-order"] .po-quick-card p { margin: 4px 0 0; color: #8A7FA6; font-size: 10.5px; line-height: 1.6; }
+[data-testid="public-order"] .po-quick-arrow { position: absolute; top: 14px; left: 14px; color: #8A7FA6; font-size: 14px; opacity: .5; }
+[data-testid="public-order"] .po-section-card {
+  position: relative;
+  margin-bottom: 14px;
+  padding: 18px 18px 16px;
+  border: 1px solid #EDE7FA;
+  border-radius: 30px;
+  background: #fff;
+  box-shadow: 0 4px 16px -6px rgba(42,27,82,.14);
+}
+[data-testid="public-order"] .po-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+[data-testid="public-order"] .po-section-head h3 { margin: 0; display: flex; align-items: center; gap: 8px; color: #1B0F35; font-size: 14px; font-weight: 900; }
+[data-testid="public-order"] .po-section-head h3::before { content: ""; width: 4px; height: 16px; border-radius: 99px; background: linear-gradient(180deg, #F4DE8F, #6C4BC9); }
+[data-testid="public-order"] .po-section-head small { color: #8A7FA6; font-size: 11px; font-weight: 800; }
+.po-dialog-hero { text-align: center; margin: 0 auto 8px; }
+.po-dialog-hero .po-badge-mark { width: 64px; height: 64px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 22px; background: linear-gradient(140deg, #1B0F35, #6C4BC9); color: #F4DE8F; font: 900 26px Georgia, serif; box-shadow: 0 20px 40px -20px rgba(42,27,82,1); }
+
 /* Numbers use tabular figures */
 .num { font-variant-numeric: tabular-nums; font-family: 'Cairo', 'Tajawal', monospace; }
 
@@ -140,3 +874,2733 @@ table { width: 100%; }
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
 }
+
+/* Modern customer notification center */
+[data-testid="public-order"] .po-notifs-surface { background: linear-gradient(180deg, #FBF9FF 0%, #F5F0FC 100%); border: 1px solid rgba(108,75,201,.22); box-shadow: 0 28px 70px -32px rgba(27,15,53,.55), 0 12px 28px -18px rgba(108,75,201,.3); }
+[data-testid="public-order"] .po-notifs-hero { display: flex; align-items: center; gap: 12px; padding: 4px 2px 16px; border-bottom: 1px solid #E9E1F4; }
+[data-testid="public-order"] .po-notifs-hero-icon { width: 46px; height: 46px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 14px; color: #F4DE8F; background: linear-gradient(145deg,#1B0F35,#6C4BC9); box-shadow: 0 12px 22px -14px rgba(27,15,53,.9); }
+[data-testid="public-order"] .po-notifs-count { margin-right: auto; border-radius: 999px; padding: 6px 9px; color: #6C4BC9; background: #EEE8FA; font-size: 10px; font-weight: 900; white-space: nowrap; }
+[data-testid="public-order"] .po-notifs-list { display: grid; gap: 10px; padding-top: 14px; }
+[data-testid="public-order"] .po-notif-item { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 13px; border: 1px solid #E9E1F4; border-radius: 18px; background: rgba(255,255,255,.82); text-align: right; box-shadow: 0 8px 20px -16px rgba(27,15,53,.5); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+[data-testid="public-order"] .po-notif-item:hover { transform: translateY(-1px); border-color: #B9A5E2; box-shadow: 0 14px 24px -18px rgba(108,75,201,.55); }
+[data-testid="public-order"] .po-notif-item.po-notif-unread { border-color: #D4AF37; background: linear-gradient(135deg,#FFFDF6,#F8F3FF); }
+[data-testid="public-order"] .po-notif-item-icon { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 12px; color: #6C4BC9; background: #EEE8FA; }
+[data-testid="public-order"] .po-notif-unread .po-notif-item-icon { color: #8A6911; background: #FBF0C8; }
+[data-testid="public-order"] .po-notif-item-body { display: grid; gap: 5px; min-width: 0; flex: 1; }
+[data-testid="public-order"] .po-notif-item-head { display: flex; align-items: center; gap: 8px; }
+[data-testid="public-order"] .po-notif-item-title { color: #1B0F35; font-size: 13px; font-weight: 900; }
+[data-testid="public-order"] .po-notif-new { border-radius: 999px; padding: 3px 7px; color: #fff; background: #6C4BC9; font-size: 9px; font-weight: 900; }
+[data-testid="public-order"] .po-notif-item-message { color: #655B78; font-size: 11px; line-height: 1.8; white-space: pre-line; }
+[data-testid="public-order"] .po-notif-item-date { color: #A095B2; font-size: 10px; }
+[data-testid="public-order"] .po-notifs-empty { display: grid; justify-items: center; gap: 8px; padding: 42px 16px; color: #A095B2; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { [data-testid="public-order"] .po-notif-item { transition: none; } [data-testid="public-order"] .po-notif-item:hover { transform: none; } }
+
+/* Radix DialogContent is rendered in document.body through a Portal, so
+   notification styles must not depend on the public-order root selector. */
+.po-dialog-surface {
+  border-radius: var(--po-radius-lg, 30px) !important;
+  border-color: rgba(27,15,53,.10) !important;
+  background: rgba(251,248,241,.96) !important;
+  backdrop-filter: blur(18px);
+  box-shadow: var(--po-shadow-1), var(--po-shadow-2), var(--po-shadow-3) !important;
+}
+.po-dialog-surface::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 9%;
+  right: 9%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--po-gold, #D4AF37), transparent);
+}
+.po-notifs-surface {
+  background: linear-gradient(180deg, #FFFEFA 0%, #F8F5FE 100%) !important;
+  border: 1px solid rgba(108,75,201,.22) !important;
+  box-shadow: 0 28px 70px -32px rgba(27,15,53,.55), 0 12px 28px -18px rgba(108,75,201,.3) !important;
+}
+.po-notifs-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 2px 16px;
+  border-bottom: 1px solid #E9E1F4;
+}
+.po-notifs-hero-icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  color: #F4DE8F;
+  background: linear-gradient(145deg,#1B0F35,#6C4BC9);
+  box-shadow: 0 12px 22px -14px rgba(27,15,53,.9);
+}
+.po-notifs-count {
+  margin-right: auto;
+  border-radius: 999px;
+  padding: 6px 9px;
+  color: #6C4BC9;
+  background: #EEE8FA;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.po-notifs-list {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+}
+.po-notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #E9E1F4;
+  border-radius: 18px;
+  background: rgba(255,255,255,.82);
+  text-align: right;
+  box-shadow: 0 8px 20px -16px rgba(27,15,53,.5);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.po-notif-item:hover {
+  transform: translateY(-1px);
+  border-color: #B9A5E2;
+  box-shadow: 0 14px 24px -18px rgba(108,75,201,.55);
+}
+.po-notif-item.po-notif-unread {
+  border-color: #D4AF37;
+  background: linear-gradient(135deg,#FFFDF6,#F8F3FF);
+}
+.po-notif-item-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  color: #6C4BC9;
+  background: #EEE8FA;
+}
+.po-notif-unread .po-notif-item-icon {
+  color: #8A6911;
+  background: #FBF0C8;
+}
+.po-notif-item-body {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+.po-notif-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.po-notif-item-title { color: #1B0F35; font-size: 13px; font-weight: 900; }
+.po-notif-new { border-radius: 999px; padding: 3px 7px; color: #fff; background: #6C4BC9; font-size: 9px; font-weight: 900; }
+.po-notif-item-message { color: #655B78; font-size: 11px; line-height: 1.8; white-space: pre-line; }
+.po-notif-item-date { color: #A095B2; font-size: 10px; }
+.po-notifs-empty { display: grid; justify-items: center; gap: 8px; padding: 42px 16px; color: #A095B2; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .po-notif-item { transition: none; }
+  .po-notif-item:hover { transform: none; }
+}
+
+
+/* ==========================================================
+   Unified client portal light geometric theme
+   Applies to authenticated screens, dialogs, previews, forms,
+   notifications, favorites, history, and install surfaces.
+   Functional states and data are intentionally unchanged.
+   ========================================================== */
+[data-testid="public-order"].po-portal-shell {
+  --po-light-navy: #12264A;
+  --po-light-blue: #3B82F6;
+  --po-light-blue-dark: #245C9D;
+  --po-light-sky: #EAF4FF;
+  --po-light-surface: rgba(255,255,255,.94);
+  --po-light-soft: #F5F8FC;
+  --po-light-line: #D7E2EF;
+  --po-light-muted: #66758A;
+  position: relative;
+  isolation: isolate;
+  overflow-x: hidden;
+  background:
+    linear-gradient(180deg, #F9FCFF 0%, #EEF6FF 52%, #E6F1FF 100%) !important;
+  color: var(--po-light-navy) !important;
+}
+[data-testid="public-order"].po-portal-shell::before {
+  inset: 0;
+  z-index: -1;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  filter: none;
+  opacity: .58;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(116,151,190,.11) 47%, rgba(116,151,190,.11) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(116,151,190,.08) 47%, rgba(116,151,190,.08) 49%, transparent 50%),
+    linear-gradient(135deg, rgba(255,255,255,.72), transparent 42%),
+    radial-gradient(560px 340px at 50% -12%, rgba(255,255,255,.94), transparent 76%);
+  background-size: 74px 74px, 74px 74px, auto, auto;
+  pointer-events: none;
+}
+[data-testid="public-order"].po-portal-shell::after {
+  right: -18%;
+  bottom: -8%;
+  left: -18%;
+  z-index: -1;
+  width: auto;
+  height: 18%;
+  border-radius: 50% 50% 0 0;
+  filter: blur(10px);
+  background: linear-gradient(180deg, rgba(183,216,247,.32), rgba(225,241,255,.08));
+  pointer-events: none;
+}
+[data-testid="public-order"] .po-topbar,
+[data-testid="public-order"] .po-dashboard-head,
+[data-testid="public-order"] .po-section-head,
+[data-testid="public-order"] .po-quick-title,
+[data-testid="public-order"] .po-dashboard-content {
+  color: var(--po-light-navy);
+}
+[data-testid="public-order"] .po-topbar button {
+  border-color: #D7E2EF !important;
+  background: rgba(255,255,255,.88) !important;
+  color: var(--po-light-navy) !important;
+  box-shadow: 0 8px 20px rgba(62,96,132,.10) !important;
+}
+[data-testid="public-order"] .po-topbar img {
+  background: linear-gradient(145deg, #FFFFFF, #EAF4FF) !important;
+  border-color: #8DB5E4 !important;
+  box-shadow: 0 8px 20px rgba(62,96,132,.12), 0 0 0 3px rgba(59,130,246,.10), inset 0 1px 0 rgba(255,255,255,.95) !important;
+}
+[data-testid="public-order"] .po-main-card,
+[data-testid="public-order"] .po-dashboard-card,
+[data-testid="public-order"] .po-glass-panel,
+[data-testid="public-order"] .po-panel,
+[data-testid="public-order"] .po-section-card,
+[data-testid="public-order"] [data-testid="po-account-info"],
+[data-testid="public-order"] [data-testid="po-all-operations"] > div,
+[data-testid="public-order"] [data-testid="po-stmt-preview-paper"] {
+  border-color: rgba(177,196,218,.70) !important;
+  background: rgba(255,255,255,.92) !important;
+  color: var(--po-light-navy) !important;
+  box-shadow: 0 18px 44px rgba(62,96,132,.10), 0 3px 10px rgba(62,96,132,.045) !important;
+}
+[data-testid="public-order"] .po-dashboard-card {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+[data-testid="public-order"] .po-main-card::before,
+[data-testid="public-order"] .po-glass-panel::before,
+[data-testid="public-order"] .po-panel::before,
+[data-testid="public-order"] .po-section-card::before,
+[data-testid="public-order"] [data-testid="po-all-operations"] > div::before,
+[data-testid="public-order"] [data-testid="po-stmt-preview-paper"]::before {
+  background: linear-gradient(90deg, transparent, rgba(59,130,246,.72), transparent) !important;
+}
+[data-testid="public-order"] .po-hero-card {
+  color: var(--po-light-navy) !important;
+  border: 1px solid #BFD6EE !important;
+  background:
+    radial-gradient(circle at 88% 8%, rgba(59,130,246,.18), transparent 30%),
+    linear-gradient(145deg, #FFFFFF, #EAF4FF) !important;
+  box-shadow: 0 18px 38px rgba(62,96,132,.13), 0 3px 10px rgba(62,96,132,.05) !important;
+}
+[data-testid="public-order"] .po-hero-card::after {
+  background: linear-gradient(90deg, transparent, #5F9DE7, transparent) !important;
+}
+[data-testid="public-order"] .po-hero-card::before {
+  border-color: rgba(59,130,246,.16) !important;
+  box-shadow: 0 0 0 25px rgba(59,130,246,.045), 0 0 0 54px rgba(59,130,246,.025) !important;
+}
+[data-testid="public-order"] .po-hero-card [data-testid="po-current-balance"] {
+  border-color: rgba(59,130,246,.26) !important;
+  background: rgba(255,255,255,.72) !important;
+  color: var(--po-light-navy) !important;
+}
+[data-testid="public-order"] .po-hero-card [data-testid="po-welcome-name"],
+[data-testid="public-order"] .po-hero-card .po-hero-value,
+[data-testid="public-order"] .po-hero-card .po-balance-amount,
+[data-testid="public-order"] .po-hero-card .po-balance-unit {
+  color: var(--po-light-navy) !important;
+}
+[data-testid="public-order"] .po-hero-card .po-balance-unit,
+[data-testid="public-order"] .po-hero-card .po-chip-light {
+  border-color: rgba(59,130,246,.24) !important;
+  background: #EAF4FF !important;
+  color: var(--po-light-blue-dark) !important;
+}
+[data-testid="public-order"] .po-hero-eye {
+  border-color: #C4D8ED !important;
+  background: #F5F8FC !important;
+  color: var(--po-light-blue-dark) !important;
+}
+[data-testid="public-order"] .po-outside-action,
+[data-testid="public-order"] .po-outside-action-gold,
+[data-testid="public-order"] .po-outside-action-active,
+[data-testid="public-order"] .po-outside-action-transfer-active {
+  border-color: #BFD6EE !important;
+  background: #FFFFFF !important;
+  color: var(--po-light-blue-dark) !important;
+  box-shadow: 0 8px 20px rgba(62,96,132,.10) !important;
+}
+[data-testid="public-order"] .po-outside-action-active,
+[data-testid="public-order"] .po-outside-action-transfer-active {
+  background: linear-gradient(135deg, #4B8CF2, #2F6FD8) !important;
+  color: #FFFFFF !important;
+  border-color: #3B82F6 !important;
+}
+[data-testid="public-order"] .po-outside-action-icon,
+[data-testid="public-order"] .po-outside-action-active .po-outside-action-icon {
+  color: currentColor !important;
+}
+[data-testid="public-order"] .po-service-tabs {
+  border: 1px solid #D7E2EF !important;
+  background: #EAF4FF !important;
+}
+[data-testid="public-order"] .po-service-tabs button[aria-selected="true"] {
+  color: var(--po-light-blue-dark) !important;
+  background: #FFFFFF !important;
+}
+[data-testid="public-order"] .po-section-head h3,
+[data-testid="public-order"] .po-quick-title h2,
+[data-testid="public-order"] .po-dashboard-head [data-testid="po-welcome-name"],
+[data-testid="public-order"] .po-main-card h1,
+[data-testid="public-order"] .po-main-card h2,
+[data-testid="public-order"] .po-main-card h3,
+[data-testid="public-order"] .po-main-card label,
+[data-testid="public-order"] .po-main-card .font-black,
+[data-testid="public-order"] .po-main-card .font-bold {
+  color: var(--po-light-navy) !important;
+}
+[data-testid="public-order"] .po-section-head h3::before {
+  background: linear-gradient(180deg, #78B5F4, #3B82F6) !important;
+}
+[data-testid="public-order"] .po-main-card input,
+[data-testid="public-order"] .po-main-card textarea,
+[data-testid="public-order"] .po-main-card [role="combobox"],
+[data-testid="public-order"] .po-main-card .po-phone-field,
+[data-testid="public-order"] .po-main-card .po-phone-field > div:first-child {
+  border-color: #D7DDE6 !important;
+  background: #F5F7FA !important;
+  color: #27364D !important;
+}
+[data-testid="public-order"] .po-main-card input:focus,
+[data-testid="public-order"] .po-main-card textarea:focus,
+[data-testid="public-order"] .po-main-card [role="combobox"]:focus {
+  border-color: #7EA9DE !important;
+  background: #FBFDFF !important;
+  box-shadow: 0 0 0 4px rgba(59,130,246,.12) !important;
+}
+[data-testid="public-order"] .po-main-card .bg-\[\#F8F7FC\],
+[data-testid="public-order"] .po-main-card .bg-\[\#F3EEF8\],
+[data-testid="public-order"] .po-main-card .bg-white {
+  background-color: #FFFFFF !important;
+}
+[data-testid="public-order"] .po-main-card .text-\[\#452480\],
+[data-testid="public-order"] .po-main-card .text-\[\#221340\],
+[data-testid="public-order"] .po-main-card .text-\[\#1A0F33\] {
+  color: var(--po-light-navy) !important;
+}
+[data-testid="public-order"] .po-main-card button.bg-\[\#221340\],
+[data-testid="public-order"] .po-main-card button.bg-\[\#452480\],
+[data-testid="public-order"] .po-main-card button.bg-\[\#D4AF37\],
+[data-testid="public-order"] .po-main-card button[data-testid="po-request"],
+[data-testid="public-order"] .po-main-card button[data-testid="po-t-lookup"],
+[data-testid="public-order"] .po-main-card button[data-testid="po-t-confirm"] {
+  background: linear-gradient(135deg, #4B8CF2, #2F6FD8) !important;
+  color: #FFFFFF !important;
+  border-color: #3B82F6 !important;
+  box-shadow: 0 12px 24px rgba(46,99,212,.18), inset 0 1px 0 rgba(255,255,255,.25) !important;
+}
+[data-testid="public-order"] .po-bottom-dock {
+  border-color: #D7E2EF !important;
+  background: rgba(255,255,255,.95) !important;
+  box-shadow: 0 18px 38px rgba(62,96,132,.12) !important;
+}
+[data-testid="public-order"] .po-bottom-dock button {
+  color: var(--po-light-muted) !important;
+}
+[data-testid="public-order"] .po-bottom-dock button[class*="bg-[#D4AF37]"] {
+  color: #FFFFFF !important;
+  background: linear-gradient(135deg, #4B8CF2, #2F6FD8) !important;
+}
+[data-testid="public-order"] .po-dialog-surface,
+.po-dialog-surface {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(177,196,218,.74) !important;
+  border-radius: 30px !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(238,246,255,.97)) !important;
+  color: var(--po-light-navy, #12264A) !important;
+  box-shadow: 0 22px 60px rgba(62,96,132,.18), 0 4px 12px rgba(62,96,132,.07) !important;
+}
+.po-dialog-surface::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .42;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(116,151,190,.10) 47%, rgba(116,151,190,.10) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(116,151,190,.07) 47%, rgba(116,151,190,.07) 49%, transparent 50%);
+  background-size: 68px 68px;
+}
+[data-testid="public-order"] .po-dialog-surface::before,
+.po-dialog-surface::before {
+  background: linear-gradient(90deg, transparent, #5F9DE7, transparent) !important;
+}
+.po-dialog-surface .po-form-dialog,
+.po-dialog-surface input,
+.po-dialog-surface textarea,
+.po-dialog-surface [role="combobox"] {
+  color: var(--po-light-navy, #12264A) !important;
+}
+.po-dialog-surface input,
+.po-dialog-surface textarea,
+.po-dialog-surface [role="combobox"] {
+  min-height: 54px;
+  border-color: #D7DDE6 !important;
+  border-radius: 18px !important;
+  background: #F5F7FA !important;
+  box-shadow: inset 0 1px 1px rgba(42,61,83,.025) !important;
+}
+.po-dialog-surface input:focus,
+.po-dialog-surface textarea:focus {
+  border-color: #7EA9DE !important;
+  background: #FBFDFF !important;
+  box-shadow: 0 0 0 4px rgba(59,130,246,.12) !important;
+}
+.po-dialog-surface .po-badge-mark,
+.po-dialog-hero .po-badge-mark {
+  background: linear-gradient(145deg, #4B8CF2, #2F6FD8) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 14px 28px rgba(46,99,212,.22) !important;
+}
+.po-dialog-surface button.bg-\[\#221340\],
+.po-dialog-surface button.bg-\[\#452480\],
+.po-dialog-surface button[type="submit"],
+.po-dialog-surface button[data-testid="po-stmt-print"] {
+  background: linear-gradient(135deg, #4B8CF2, #2F6FD8) !important;
+  color: #FFFFFF !important;
+  border-color: #3B82F6 !important;
+}
+.po-dialog-surface .bg-\[\#F3EEF8\],
+.po-dialog-surface .bg-\[\#F8F7FC\],
+.po-dialog-surface .bg-\[\#F4F1FA\] {
+  background-color: #EAF4FF !important;
+}
+.po-dialog-surface .text-\[\#221340\],
+.po-dialog-surface .text-\[\#452480\],
+.po-dialog-surface .text-\[\#1B0F35\] {
+  color: var(--po-light-navy, #12264A) !important;
+}
+.po-notifs-surface {
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(238,246,255,.97)) !important;
+  border-color: #BFD6EE !important;
+}
+.po-notifs-hero {
+  border-bottom-color: #D7E2EF !important;
+}
+.po-notifs-hero-icon {
+  color: #FFFFFF !important;
+  background: linear-gradient(145deg, #4B8CF2, #2F6FD8) !important;
+  box-shadow: 0 12px 22px rgba(46,99,212,.22) !important;
+}
+.po-notifs-count,
+.po-notif-new {
+  color: #FFFFFF !important;
+  background: #3B82F6 !important;
+}
+.po-notif-item {
+  border-color: #D7E2EF !important;
+  background: rgba(255,255,255,.92) !important;
+  box-shadow: 0 8px 20px rgba(62,96,132,.08) !important;
+}
+.po-notif-item.po-notif-unread {
+  border-color: #7EA9DE !important;
+  background: linear-gradient(135deg, #FFFFFF, #EAF4FF) !important;
+}
+.po-notif-item-icon {
+  color: #245C9D !important;
+  background: #EAF4FF !important;
+}
+.po-notif-item-title { color: var(--po-light-navy, #12264A) !important; }
+.po-notif-item-message { color: #66758A !important; }
+.po-notif-item-date { color: #8A9AAF !important; }
+.po-notifs-empty {
+  border-color: #BFD6EE !important;
+  background: #F5F8FC !important;
+  color: #66758A !important;
+}
+[data-testid="install-banner"] {
+  border-color: #BFD6EE !important;
+  background:
+    linear-gradient(135deg, transparent 46%, rgba(116,151,190,.08) 47%, rgba(116,151,190,.08) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(116,151,190,.06) 47%, rgba(116,151,190,.06) 49%, transparent 50%),
+    linear-gradient(180deg, #F9FCFF 0%, #EEF6FF 52%, #E6F1FF 100%) !important;
+  background-size: 74px 74px, 74px 74px, auto !important;
+  box-shadow: 0 12px 28px rgba(62,96,132,.10) !important;
+}
+[data-testid="install-banner"] .bg-\[\#452480\] {
+  background: linear-gradient(135deg, #4B8CF2, #2F6FD8) !important;
+}
+[data-testid="install-banner"] .text-\[\#221340\],
+[data-testid="install-banner"] .text-\[\#452480\] {
+  color: var(--po-light-navy) !important;
+}
+[data-testid="public-order"] .po-main-card table thead,
+[data-testid="public-order"] .po-dialog-surface table thead {
+  background: #245C9D !important;
+}
+[data-testid="public-order"] .po-main-card .border-red-300,
+[data-testid="public-order"] .po-main-card .border-red-400,
+[data-testid="public-order"] .po-main-card .border-amber-400,
+[data-testid="public-order"] .po-main-card .border-emerald-200 {
+  border-color: #BFD6EE !important;
+}
+[data-testid="public-order"] .po-main-card .bg-red-50,
+[data-testid="public-order"] .po-main-card .bg-amber-50,
+[data-testid="public-order"] .po-main-card .bg-emerald-50 {
+  background: #F5F8FC !important;
+}
+@media (max-width: 640px) {
+  [data-testid="public-order"] .po-main-card { border-radius: 30px !important; }
+  [data-testid="public-order"] .po-dialog-surface,
+  .po-dialog-surface { width: calc(100vw - 1rem) !important; max-width: calc(100vw - 1rem) !important; border-radius: 30px !important; padding: 18px !important; }
+  .po-dialog-surface .po-notifs-list { max-width: 100%; overflow-x: hidden; }
+  .po-dialog-surface .po-notif-item { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="public-order"] .po-main-card button,
+  [data-testid="public-order"] .po-bottom-dock button,
+  .po-dialog-surface button { transition: none !important; }
+}
+
+/* Android/Web startup background uses the same light blue visual language. */
+body:has([data-testid="public-order"]) { background: #EEF6FF !important; }
+body:has([data-testid="public-order"])::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+  opacity: .22;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(116,151,190,.10) 47%, rgba(116,151,190,.10) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(116,151,190,.07) 47%, rgba(116,151,190,.07) 49%, transparent 50%);
+  background-size: 82px 82px;
+}
+
+
+/* Previous-operations search */
+[data-testid="public-order"] .po-operation-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 48px;
+  margin-top: 2px;
+  padding: 4px 12px;
+  border: 1px solid #BFD6EE;
+  border-radius: 18px;
+  background: #F5F8FC;
+  color: #245C9D;
+  box-shadow: inset 0 1px 2px rgba(62,96,132,.03);
+}
+[data-testid="public-order"] .po-operation-search:focus-within {
+  border-color: #7EA9DE;
+  background: #FFFFFF;
+  box-shadow: 0 0 0 4px rgba(59,130,246,.10);
+}
+[data-testid="public-order"] .po-operation-search input {
+  min-width: 0;
+  flex: 1;
+  color: #12264A !important;
+  background: transparent !important;
+}
+[data-testid="public-order"] .po-operation-search input::placeholder { color: #8A9AAF; }
+[data-testid="public-order"] .po-operation-search-clear {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  color: #245C9D;
+  background: #EAF4FF;
+  font-size: 20px;
+  line-height: 1;
+}
+[data-testid="public-order"] .po-operation-search-clear:hover { background: #D8EBFF; }
+[data-testid="public-order"] .po-operation-search-empty {
+  padding: 24px 12px;
+  border: 1px dashed #BFD6EE;
+  border-radius: 18px;
+  background: #F5F8FC;
+  color: #66758A;
+  text-align: center;
+  font-size: .78rem;
+}
+@media (max-width: 380px) {
+  [data-testid="public-order"] .po-operation-search input { font-size: 14px !important; }
+}
+
+
+/* ==========================================================
+   Small-screen portal safety layer
+   Keeps every client-portal surface inside the viewport:
+   dialogs, account/bank cards, notifications, favorites,
+   history, transfers, order forms, and print previews.
+   ========================================================== */
+[data-testid="public-order"] {
+  width: 100%;
+  min-width: 0;
+  max-width: 100vw;
+}
+[data-testid="public-order"] .po-portal-width,
+[data-testid="public-order"] .po-main-card,
+[data-testid="public-order"] .po-dashboard-content,
+[data-testid="public-order"] .po-dashboard-content > *,
+[data-testid="public-order"] .po-panel,
+[data-testid="public-order"] .po-section-card,
+[data-testid="public-order"] .po-glass-panel,
+[data-testid="public-order"] .po-account-info,
+[data-testid="public-order"] [data-testid="po-all-operations"] > *,
+[data-testid="public-order"] [data-testid^="po-order-"],
+[data-testid="public-order"] [data-testid^="po-transfer-"] {
+  min-width: 0;
+  max-width: 100%;
+}
+[data-testid="public-order"] .po-main-card,
+[data-testid="public-order"] .po-panel,
+[data-testid="public-order"] .po-section-card,
+[data-testid="public-order"] .po-glass-panel,
+[data-testid="public-order"] [data-testid="po-account-info"],
+[data-testid="public-order"] [data-testid="po-all-operations"] > * {
+  overflow-x: hidden;
+}
+[data-testid="public-order"] .po-section-head,
+[data-testid="public-order"] .po-dashboard-head {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+[data-testid="public-order"] .po-section-head h3,
+[data-testid="public-order"] .po-dashboard-head > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+[data-testid="public-order"] .po-main-card .font-mono,
+[data-testid="public-order"] .po-main-card [dir="ltr"],
+[data-testid="public-order"] .po-dialog-surface .font-mono,
+[data-testid="public-order"] .po-dialog-surface [dir="ltr"] {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+[data-testid="public-order"] .po-main-card .truncate,
+[data-testid="public-order"] .po-dialog-surface .truncate {
+  max-width: 100%;
+}
+[data-testid="public-order"] .po-hero-card,
+[data-testid="public-order"] [data-testid="po-portal-banks"],
+[data-testid="public-order"] [data-testid="po-portal-banks"] > *,
+[data-testid="public-order"] [data-testid="po-portal-banks"] .flex,
+[data-testid="public-order"] [data-testid="po-portal-banks"] .grid {
+  min-width: 0;
+}
+[data-testid="public-order"] .po-dialog-surface,
+.po-dialog-surface {
+  box-sizing: border-box;
+  max-width: calc(100vw - 1rem) !important;
+  max-height: calc(100dvh - 1rem) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+[data-testid="public-order"] .po-dialog-surface > *,
+.po-dialog-surface > * {
+  min-width: 0;
+  max-width: 100%;
+}
+[data-testid="public-order"] .po-dialog-surface table {
+  max-width: none;
+}
+
+/* The two recipient rows become a compact, two-column mobile layout. */
+@media (max-width: 640px) {
+  [data-testid="public-order"] .po-main-card {
+    width: 100%;
+    max-width: 100%;
+    padding-inline: 14px !important;
+  }
+  [data-testid="public-order"] .po-portal-width {
+    width: 100%;
+    max-width: 100%;
+  }
+  [data-testid="public-order"] .po-main-card .grid.grid-cols-2 {
+    min-width: 0;
+  }
+  [data-testid="public-order"] .po-main-card div:has(> [data-testid="po-t-phone"]),
+  [data-testid="public-order"] .po-main-card div:has(> [data-testid="po-recipient-phone"]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    min-width: 0;
+  }
+  [data-testid="public-order"] .po-main-card div:has(> [data-testid="po-t-phone"]) > [data-testid="po-t-phone"],
+  [data-testid="public-order"] .po-main-card div:has(> [data-testid="po-recipient-phone"]) > [data-testid="po-recipient-phone"] {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+  [data-testid="public-order"] .po-main-card div:has(> [data-testid="po-t-phone"]) > button,
+  [data-testid="public-order"] .po-main-card div:has(> [data-testid="po-recipient-phone"]) > button {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: normal;
+  }
+  [data-testid="public-order"] .po-main-card button {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  [data-testid="public-order"] .po-outside-actions {
+    min-width: 0;
+  }
+  [data-testid="public-order"] .po-outside-action {
+    min-width: 0;
+    padding-inline: 8px;
+    white-space: normal;
+    line-height: 1.35;
+  }
+  [data-testid="public-order"] [data-testid="po-portal-banks"] .flex.items-center.justify-between {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  [data-testid="public-order"] [data-testid="po-portal-banks"] .flex.items-center.justify-between > * {
+    min-width: 0;
+  }
+  [data-testid="public-order"] [data-testid="po-portal-banks"] .font-mono {
+    text-align: left;
+  }
+  [data-testid="public-order"] [data-testid="po-portal-banks"] .break-all {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  [data-testid="public-order"] .po-notif-item-head,
+  [data-testid="public-order"] .po-notifs-hero,
+  [data-testid="public-order"] .po-notif-item {
+    min-width: 0;
+    max-width: 100%;
+  }
+  [data-testid="public-order"] .po-notif-item-head {
+    flex-wrap: wrap;
+  }
+  [data-testid="public-order"] .po-notif-item-message,
+  [data-testid="public-order"] .po-notif-item-title,
+  [data-testid="public-order"] .po-notif-item-date {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  [data-testid="public-order"] .po-dialog-surface .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-testid="public-order"] .po-dialog-surface .grid.grid-cols-2 > .col-span-2 {
+    grid-column: auto;
+  }
+  [data-testid="public-order"] .po-dialog-surface .flex.justify-between {
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  [data-testid="public-order"] .po-dialog-surface .flex.justify-between > * {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  [data-testid="public-order"] .po-dialog-surface .flex.flex-row,
+  [data-testid="public-order"] .po-dialog-surface .flex.items-center {
+    min-width: 0;
+  }
+  [data-testid="public-order"] .po-dialog-surface .flex.flex-row > button,
+  [data-testid="public-order"] .po-dialog-surface .flex.items-center > button {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  [data-testid="public-order"] .po-main-card {
+    padding-inline: 10px !important;
+  }
+  [data-testid="public-order"] .po-hero-card,
+  [data-testid="public-order"] .po-section-card,
+  [data-testid="public-order"] .po-panel,
+  [data-testid="public-order"] [data-testid="po-account-info"] {
+    border-radius: 22px !important;
+    padding-inline: 12px !important;
+  }
+  [data-testid="public-order"] .po-outside-action {
+    font-size: 11px;
+  }
+  [data-testid="public-order"] .po-dialog-surface,
+  .po-dialog-surface {
+    width: calc(100vw - .5rem) !important;
+    max-width: calc(100vw - .5rem) !important;
+    padding: 12px !important;
+    border-radius: 22px !important;
+  }
+  [data-testid="public-order"] .po-dialog-surface .grid.grid-cols-2 {
+    gap: 6px;
+  }
+}
+
+/* Final portal dialog safety layer: Radix portals render under body, so this must stay global. */
+.po-portal-scroll-dialog,
+.po-form-dialog {
+  box-sizing: border-box !important;
+  width: min(calc(100vw - 1rem), 32rem) !important;
+  max-width: calc(100vw - 1rem) !important;
+  max-height: calc(100dvh - 1rem) !important;
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+  scrollbar-gutter: stable;
+}
+.po-portal-scroll-dialog > *,
+.po-form-dialog > *,
+.po-form-dialog form,
+.po-form-dialog form > * {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+.po-form-dialog form { overflow: visible; }
+.po-form-dialog .po-phone-field,
+.po-form-dialog .po-phone-field > *,
+.po-form-dialog input,
+.po-form-dialog textarea,
+.po-form-dialog button {
+  min-width: 0;
+  max-width: 100%;
+}
+.po-form-dialog button { white-space: normal; overflow-wrap: anywhere; }
+
+/* The internal dashboard primary is royal purple; the public login action uses the same token. */
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"] {
+  background: linear-gradient(135deg, #221340 0%, #452480 100%) !important;
+  border-color: #452480 !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 16px 30px rgba(34, 19, 64, .22), inset 0 1px 0 rgba(255,255,255,.18) !important;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"]:hover {
+  background: linear-gradient(135deg, #1B0F35 0%, #452480 100%) !important;
+}
+
+@media (max-width: 640px) {
+  .po-portal-scroll-dialog,
+  .po-form-dialog {
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    padding: 1rem !important;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+    border-radius: 22px !important;
+  }
+  .po-form-dialog .grid.grid-cols-2 { grid-template-columns: minmax(0, 1fr) !important; }
+}
+@media (max-width: 380px) {
+  .po-portal-scroll-dialog,
+  .po-form-dialog {
+    width: calc(100vw - .5rem) !important;
+    max-width: calc(100vw - .5rem) !important;
+    padding-inline: .75rem !important;
+    border-radius: 22px !important;
+  }
+}
+
+
+/* ==========================================================
+   Final client-portal dashboard palette
+   The portal keeps its light geometric surface, but all actions,
+   dialogs, cards, and navigation now use the internal dashboard's
+   royal purple / gold tokens instead of the older blue layer.
+   ========================================================== */
+[data-testid="public-order"].po-portal-shell {
+  --po-dashboard-purple: #221340;
+  --po-dashboard-purple-2: #452480;
+  --po-dashboard-purple-3: #5A2FA0;
+  --po-dashboard-gold: #D4AF37;
+  --po-dashboard-cream: #FBF8F1;
+  --po-dashboard-line: #E5DDF0;
+  --po-dashboard-muted: #6B6278;
+  background: linear-gradient(180deg, #FFFDF8 0%, #FBF8F1 52%, #F6F0E8 100%) !important;
+  color: var(--po-dashboard-purple) !important;
+}
+[data-testid="public-order"].po-portal-shell::before {
+  opacity: .42;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(69,36,128,.09) 47%, rgba(69,36,128,.09) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(212,175,55,.10) 47%, rgba(212,175,55,.10) 49%, transparent 50%),
+    radial-gradient(560px 340px at 50% -12%, rgba(255,255,255,.96), transparent 76%);
+  background-size: 74px 74px, 74px 74px, auto;
+}
+[data-testid="public-order"].po-portal-shell::after {
+  background: linear-gradient(180deg, rgba(212,175,55,.14), rgba(69,36,128,.06)) !important;
+}
+body:has([data-testid="public-order"]) { background: #FBF8F1 !important; }
+body:has([data-testid="public-order"])::before {
+  opacity: .16;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(69,36,128,.10) 47%, rgba(69,36,128,.10) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(212,175,55,.09) 47%, rgba(212,175,55,.09) 49%, transparent 50%);
+}
+[data-testid="public-order"] .po-main-card,
+[data-testid="public-order"] .po-panel,
+[data-testid="public-order"] .po-glass-panel,
+[data-testid="public-order"] .po-section-card,
+[data-testid="public-order"] [data-testid="po-account-info"] {
+  border-color: var(--po-dashboard-line) !important;
+  background: rgba(255,255,255,.94) !important;
+  color: var(--po-dashboard-purple) !important;
+  box-shadow: 0 18px 44px rgba(34,19,64,.10), 0 3px 10px rgba(34,19,64,.04) !important;
+}
+[data-testid="public-order"] .po-hero-card {
+  border-color: var(--po-dashboard-purple-2) !important;
+  background: radial-gradient(circle at 88% 8%, rgba(212,175,55,.24), transparent 30%), linear-gradient(135deg, #221340 0%, #452480 100%) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 18px 38px rgba(34,19,64,.24), 0 3px 10px rgba(34,19,64,.08) !important;
+}
+[data-testid="public-order"] .po-hero-card [data-testid="po-current-balance"],
+[data-testid="public-order"] .po-hero-card .po-chip-light,
+[data-testid="public-order"] .po-hero-card .po-balance-unit {
+  border-color: rgba(212,175,55,.48) !important;
+  background: rgba(255,255,255,.14) !important;
+  color: #FFF8E5 !important;
+}
+[data-testid="public-order"] .po-hero-card .po-hero-value,
+[data-testid="public-order"] .po-hero-card .po-balance-amount,
+[data-testid="public-order"] .po-hero-card .po-balance-unit,
+[data-testid="public-order"] .po-hero-card .po-chip-light { color: #FFFFFF !important; }
+[data-testid="public-order"] .po-hero-eye {
+  border-color: rgba(212,175,55,.55) !important;
+  background: rgba(255,255,255,.13) !important;
+  color: #FFF8E5 !important;
+}
+[data-testid="public-order"] .po-outside-action,
+[data-testid="public-order"] .po-outside-action-gold,
+[data-testid="public-order"] .po-outside-action-active,
+[data-testid="public-order"] .po-outside-action-transfer-active {
+  border-color: var(--po-dashboard-gold) !important;
+  background: #FFFFFF !important;
+  color: var(--po-dashboard-purple-2) !important;
+  box-shadow: 0 8px 20px rgba(34,19,64,.10) !important;
+}
+[data-testid="public-order"] .po-outside-action-active,
+[data-testid="public-order"] .po-outside-action-transfer-active {
+  background: linear-gradient(135deg, #221340, #452480) !important;
+  color: #FFFFFF !important;
+  border-color: var(--po-dashboard-gold) !important;
+}
+[data-testid="public-order"] .po-service-tabs {
+  border-color: var(--po-dashboard-line) !important;
+  background: #F3EEF8 !important;
+}
+[data-testid="public-order"] .po-service-tabs button[aria-selected="true"] {
+  color: var(--po-dashboard-purple-2) !important;
+  background: #FFFFFF !important;
+  box-shadow: inset 0 -2px 0 var(--po-dashboard-gold) !important;
+}
+[data-testid="public-order"] .po-main-card button.bg-\[\#221340\],
+[data-testid="public-order"] .po-main-card button.bg-\[\#452480\],
+[data-testid="public-order"] .po-main-card button.bg-\[\#D4AF37\],
+[data-testid="public-order"] .po-main-card button[data-testid="po-request"],
+[data-testid="public-order"] .po-main-card button[data-testid="po-t-lookup"],
+[data-testid="public-order"] .po-main-card button[data-testid="po-t-confirm"],
+[data-testid="public-order"] .po-main-card button[data-testid="po-open-payment-confirmation"] {
+  background: linear-gradient(135deg, #221340, #452480) !important;
+  color: #FFFFFF !important;
+  border-color: var(--po-dashboard-gold) !important;
+  box-shadow: 0 12px 24px rgba(34,19,64,.18), inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+[data-testid="public-order"] .po-bottom-dock {
+  border-color: var(--po-dashboard-gold) !important;
+  background: linear-gradient(135deg, #221340, #452480) !important;
+  box-shadow: 0 18px 38px rgba(34,19,64,.22) !important;
+}
+[data-testid="public-order"] .po-bottom-dock button { color: rgba(255,255,255,.78) !important; }
+[data-testid="public-order"] .po-bottom-dock button:hover { color: #FFF8E5 !important; background: rgba(212,175,55,.22) !important; }
+[data-testid="public-order"] .po-bottom-dock button[class*='bg-[#D4AF37]'] { color: #1A0F33 !important; background: #D4AF37 !important; }
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"],
+[data-testid="public-order"] .po-form-dialog button[type="submit"],
+[data-testid="public-order"] .po-dialog-surface button[data-testid="po-submit-payment-confirmation"] {
+  background: linear-gradient(135deg, #221340, #452480) !important;
+  border-color: var(--po-dashboard-gold) !important;
+  color: #FFFFFF !important;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"]:hover,
+[data-testid="public-order"] .po-form-dialog button[type="submit"]:hover,
+[data-testid="public-order"] .po-dialog-surface button[data-testid="po-submit-payment-confirmation"]:hover {
+  background: linear-gradient(135deg, #1B0F35, #5A2FA0) !important;
+}
+
+/* Radix Dialog content is portalled under body; keep this selector global. */
+.po-dialog-surface {
+  border-color: var(--po-dashboard-line, #E5DDF0) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.99), rgba(251,248,241,.98)) !important;
+  color: var(--po-dashboard-purple, #221340) !important;
+  box-shadow: 0 22px 60px rgba(34,19,64,.20), 0 4px 12px rgba(34,19,64,.08) !important;
+}
+.po-dialog-surface::after {
+  opacity: .28;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(69,36,128,.08) 47%, rgba(69,36,128,.08) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(212,175,55,.09) 47%, rgba(212,175,55,.09) 49%, transparent 50%);
+}
+.po-dialog-surface::before { background: linear-gradient(90deg, transparent, #D4AF37, transparent) !important; }
+.po-dialog-surface input,
+.po-dialog-surface textarea,
+.po-dialog-surface select,
+.po-dialog-surface [role="combobox"] {
+  border-color: #DDD6EE !important;
+  background: #FFFFFF !important;
+  color: #221340 !important;
+}
+.po-dialog-surface input:focus,
+.po-dialog-surface textarea:focus,
+.po-dialog-surface select:focus,
+.po-dialog-surface [role="combobox"]:focus {
+  border-color: #452480 !important;
+  box-shadow: 0 0 0 4px rgba(69,36,128,.12) !important;
+}
+.po-dialog-surface button.bg-\[\#221340\],
+.po-dialog-surface button.bg-\[\#452480\],
+.po-dialog-surface button[type="submit"],
+.po-dialog-surface button[data-testid="po-stmt-print"],
+.po-dialog-surface button[data-testid="po-submit-payment-confirmation"] {
+  background: linear-gradient(135deg, #221340, #452480) !important;
+  color: #FFFFFF !important;
+  border-color: #D4AF37 !important;
+}
+.po-dialog-surface .bg-\[\#F3EEF8\],
+.po-dialog-surface .bg-\[\#F8F7FC\],
+.po-dialog-surface .bg-\[\#F4F1FA\] { background-color: #F8F3FF !important; }
+.po-dialog-surface .text-\[\#221340\],
+.po-dialog-surface .text-\[\#452480\],
+.po-dialog-surface .text-\[\#1B0F35\] { color: #221340 !important; }
+[data-testid="install-banner"] {
+  border-color: #D4AF37 !important;
+  background: linear-gradient(135deg, rgba(69,36,128,.07), rgba(212,175,55,.10)), #FBF8F1 !important;
+}
+[data-testid="install-banner"] [data-testid="install-banner-install"] { background: linear-gradient(135deg, #221340, #452480) !important; }
+
+/* Royal dashboard palette final override */
+.po-portal-scroll-dialog,
+.po-form-dialog { overscroll-behavior: contain; }
+
+
+/* Final white geometric client-portal surface */
+[data-testid="public-order"].po-portal-shell {
+  --po-dashboard-cream: #FFFFFF;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 52%, #FFFFFF 100%) !important;
+}
+[data-testid="public-order"].po-portal-shell::before {
+  opacity: .48;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(69,36,128,.075) 47%, rgba(69,36,128,.075) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(212,175,55,.085) 47%, rgba(212,175,55,.085) 49%, transparent 50%),
+    linear-gradient(90deg, transparent 49.5%, rgba(148,163,184,.055) 50%, transparent 50.5%);
+  background-size: 74px 74px, 74px 74px, 37px 37px;
+}
+[data-testid="public-order"].po-portal-shell::after {
+  background: linear-gradient(180deg, rgba(255,255,255,.82), rgba(248,251,255,.18)) !important;
+}
+body:has([data-testid="public-order"]) { background: #FFFFFF !important; }
+body:has([data-testid="public-order"])::before {
+  opacity: .18;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(69,36,128,.075) 47%, rgba(69,36,128,.075) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(212,175,55,.075) 47%, rgba(212,175,55,.075) 49%, transparent 50%);
+}
+[data-testid="public-order"] .po-main-card,
+[data-testid="public-order"] .po-panel,
+[data-testid="public-order"] .po-glass-panel,
+[data-testid="public-order"] .po-section-card,
+[data-testid="public-order"] [data-testid="po-account-info"] {
+  background: rgba(255,255,255,.97) !important;
+}
+.po-dialog-surface {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 100%) !important;
+}
+.po-dialog-surface::after {
+  opacity: .24;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(69,36,128,.065) 47%, rgba(69,36,128,.065) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(212,175,55,.075) 47%, rgba(212,175,55,.075) 49%, transparent 50%);
+}
+.po-dialog-surface .bg-\[\#F3EEF8\],
+.po-dialog-surface .bg-\[\#F8F7FC\],
+.po-dialog-surface .bg-\[\#F4F1FA\],
+.po-dialog-surface [class~='bg-[#FFFDF6]'],
+.po-dialog-surface [class~='bg-[#FFF8E5]'] {
+  background-color: #FFFFFF !important;
+}
+[data-testid="install-banner"] {
+  background: linear-gradient(135deg, rgba(69,36,128,.045), rgba(212,175,55,.055)), #FFFFFF !important;
+}
+/* Final white geometric portal surface */
+
+
+/* Final portal window hardening: one global rule for every Radix portal window. */
+.po-dialog-content,
+.po-dialog-surface {
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  max-width: calc(100vw - 1rem) !important;
+  max-height: calc(100dvh - 1rem) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  scrollbar-gutter: stable both-edges;
+  -webkit-overflow-scrolling: touch;
+}
+.po-dialog-content {
+  width: min(calc(100vw - 1rem), 42rem) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 1rem !important;
+  background-clip: padding-box;
+}
+.po-dialog-content > *,
+.po-dialog-surface > * {
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  min-height: 0;
+}
+.po-dialog-content form,
+.po-dialog-content [role="list"],
+.po-dialog-content .po-notifs-list,
+.po-dialog-content .po-favorites-list {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.po-dialog-content input,
+.po-dialog-content textarea,
+.po-dialog-content select,
+.po-dialog-content button,
+.po-dialog-surface input,
+.po-dialog-surface textarea,
+.po-dialog-surface select,
+.po-dialog-surface button {
+  box-sizing: border-box !important;
+  min-width: 0;
+  max-width: 100%;
+}
+.po-dialog-content button,
+.po-dialog-surface button {
+  text-decoration: none !important;
+  text-underline-offset: unset !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* Remove the decorative stripe previously rendered inside submit/confirmation buttons. */
+.po-dialog-content button::before,
+.po-dialog-content button::after,
+.po-dialog-surface button::before,
+.po-dialog-surface button::after,
+.po-form-dialog button::before,
+.po-form-dialog button::after {
+  content: none !important;
+  display: none !important;
+}
+.po-dialog-content .grid.grid-cols-2,
+.po-dialog-surface .grid.grid-cols-2 {
+  min-width: 0;
+}
+.po-dialog-content .overflow-x-auto,
+.po-dialog-surface .overflow-x-auto {
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+}
+.po-dialog-content table,
+.po-dialog-surface table {
+  max-width: none;
+}
+
+@media (max-width: 640px) {
+  .po-dialog-content,
+  .po-dialog-surface {
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    padding: 1rem !important;
+    padding-top: max(1rem, env(safe-area-inset-top)) !important;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+    border-radius: 22px !important;
+  }
+  .po-dialog-content {
+    left: .5rem !important;
+    right: .5rem !important;
+    top: max(.5rem, env(safe-area-inset-top)) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 1rem) !important;
+    transform: none !important;
+  }
+  .po-dialog-content .grid.grid-cols-2,
+  .po-dialog-surface .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .po-dialog-content .grid.grid-cols-2 > .col-span-2,
+  .po-dialog-surface .grid.grid-cols-2 > .col-span-2 {
+    grid-column: auto !important;
+  }
+  .po-dialog-content .flex.justify-between,
+  .po-dialog-surface .flex.justify-between {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+  .po-dialog-content .flex.justify-between > *,
+  .po-dialog-surface .flex.justify-between > * {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .po-dialog-content .po-phone-field {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+  }
+  .po-dialog-content .po-phone-field > * {
+    min-width: 0;
+  }
+  .po-dialog-content .po-phone-field > div:first-child {
+    flex: 0 1 auto;
+    padding-inline: .55rem;
+    font-size: .82rem;
+  }
+  .po-dialog-content .po-phone-field > div:last-child {
+    flex: 1 1 auto;
+  }
+}
+@media (max-width: 380px) {
+  .po-dialog-content,
+  .po-dialog-surface {
+    width: calc(100vw - .5rem) !important;
+    max-width: calc(100vw - .5rem) !important;
+    padding-inline: .75rem !important;
+    border-radius: 18px !important;
+  }
+  .po-dialog-content {
+    left: .25rem !important;
+    right: .25rem !important;
+  }
+  .po-dialog-content .po-phone-field > div:first-child {
+    padding-inline: .4rem;
+    font-size: .76rem;
+  }
+}
+
+/* The decorative top rule belongs to cards, never to action buttons. */
+.po-form-dialog::before,
+.po-dialog-surface::before {
+  pointer-events: none;
+}
+.po-form-dialog button[type="submit"] {
+  overflow: visible !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .po-dialog-content,
+  .po-dialog-surface,
+  .po-dialog-content button,
+  .po-dialog-surface button {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
+
+/* Final white geometric surface for portalled windows. */
+.po-dialog-content,
+.po-dialog-surface {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 100%) !important;
+}
+.po-dialog-content::after,
+.po-dialog-surface::after {
+  pointer-events: none !important;
+}
+.po-dialog-content[data-testid="po-notifs-dialog"],
+.po-dialog-content[data-testid="po-favorites-dialog"],
+.po-dialog-content[data-testid="po-register-dialog"],
+.po-dialog-content[data-testid="po-forgot-dialog"],
+.po-dialog-content[data-testid="po-change-password-dialog"],
+.po-dialog-content[data-testid="po-payment-confirmation-dialog"],
+.po-dialog-content[data-testid="po-stmt-preview-dialog"] {
+  isolation: isolate;
+}
+.po-dialog-content[data-testid="po-stmt-preview-dialog"] {
+  width: min(calc(100vw - 1rem), 48rem) !important;
+}
+@media (max-width: 640px) {
+  .po-dialog-content[data-testid="po-stmt-preview-dialog"] {
+    width: calc(100vw - 1rem) !important;
+  }
+}
+
+
+/* Final mobile layout: keep the client navigation fully visible at the viewport bottom. */
+[data-testid="public-order"].po-portal-shell {
+  padding-bottom: calc(7.5rem + env(safe-area-inset-bottom)) !important;
+}
+[data-testid="public-order"] .po-bottom-dock {
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: max(.5rem, env(safe-area-inset-bottom)) !important;
+  width: min(calc(100vw - 2rem), 48rem) !important;
+  max-width: calc(100vw - 2rem) !important;
+  margin: 0 !important;
+  transform: translateX(-50%) !important;
+  z-index: 40 !important;
+}
+@media (max-width: 380px) {
+  [data-testid="public-order"] .po-bottom-dock {
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+  }
+}
+
+/* No decorative strokes inside portal action buttons. */
+[data-testid="public-order"] button::before,
+[data-testid="public-order"] button::after {
+  content: none !important;
+  display: none !important;
+}
+
+
+/* Compatibility layer: preserve the pre-geometric dialog presentation.
+   The geometric theme stays on the surfaces, while Radix windows return to
+   their original centered grid layout and remain scrollable on short phones. */
+.po-dialog-content {
+  position: fixed !important;
+  display: grid !important;
+  left: 50% !important;
+  right: auto !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+  width: calc(100vw - 1rem) !important;
+  max-width: calc(100vw - 1rem) !important;
+  max-height: calc(100dvh - 1rem) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+@media (max-width: 640px) {
+  .po-dialog-content {
+    left: 50% !important;
+    right: auto !important;
+    top: 50% !important;
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    padding: 1rem !important;
+    padding-top: max(1rem, env(safe-area-inset-top)) !important;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+    transform: translate(-50%, -50%) !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .po-dialog-content {
+    width: calc(100vw - .5rem) !important;
+    max-width: calc(100vw - .5rem) !important;
+    padding-inline: .75rem !important;
+  }
+}
+
+/* Final client-portal refinement: shared login accent, compact spacing, and
+   a single recipient-phone row for card delivery and balance transfer. */
+[data-testid="public-order"].po-portal-shell {
+  --po-login-gradient: linear-gradient(140deg, #1B0F35 0%, #6C4BC9 100%);
+  --po-icon-purple: #452480;
+  padding-top: .75rem !important;
+}
+[data-testid="public-order"] .po-topbar { margin-bottom: 14px !important; }
+[data-testid="public-order"] .po-login-brand { gap: 6px; margin-bottom: 16px !important; }
+[data-testid="public-order"] .po-login-brand > div:first-child { gap: 6px; }
+[data-testid="public-order"] .po-login-welcome { margin-bottom: 16px !important; }
+[data-testid="public-order"] .po-login-welcome-title {
+  font-size: clamp(1.25rem, 6vw, 1.5rem) !important;
+  line-height: 1.35 !important;
+}
+[data-testid="public-order"] .po-login-welcome p { margin-top: 4px !important; line-height: 1.65 !important; }
+[data-testid="public-order"] .po-login-shell .po-auth-card,
+[data-testid="public-order"].po-login-shell .po-auth-card { padding: 22px 20px 20px !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card form > * + * { margin-top: .75rem !important; }
+[data-testid="public-order"] .po-dashboard-content { gap: 10px !important; }
+
+[data-testid="public-order"] .po-badge-mark,
+[data-testid="public-order"] [data-testid="po-bell"],
+[data-testid="public-order"].po-login-shell .po-auth-card [data-testid="po-login"] {
+  background: var(--po-login-gradient) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 12px 24px rgba(69,36,128,.22), inset 0 1px 0 rgba(255,255,255,.24) !important;
+}
+[data-testid="public-order"] [data-testid="po-bell"] svg { color: #FFFFFF !important; }
+[data-testid="public-order"] [data-testid="po-bell-count"] {
+  background: #F1D77A !important;
+  color: #12264A !important;
+  border: 2px solid #FFFFFF;
+}
+[data-testid="public-order"] .po-topbar [data-testid="po-bell"] {
+  background-color: #452480 !important;
+  background-image: var(--po-login-gradient) !important;
+  color: #FFFFFF !important;
+}
+
+[data-testid="public-order"] .po-recipient-phone-row {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  width: 100%;
+  min-width: 0;
+}
+[data-testid="public-order"] .po-recipient-phone-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 46px;
+}
+[data-testid="public-order"] .po-recipient-action {
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 12px;
+}
+[data-testid="public-order"] .po-recipient-action svg {
+  width: 15px;
+  height: 15px;
+}
+[data-testid="public-order"] .po-recipient-phone-row > div:has(> button[data-testid$="-open"]) > button,
+[data-testid="public-order"] .po-recipient-phone-row > button[data-testid$="contact-pick"] {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 12px;
+}
+[data-testid="public-order"] .po-recipient-phone-row > div:has(> button[data-testid$="-open"]) > button {
+  border-color: rgba(69, 36, 128, .30);
+  color: var(--po-icon-purple);
+  background: #F6F1FC;
+}
+[data-testid="public-order"] .po-recipient-phone-row > button[data-testid$="contact-pick"] {
+  border-color: rgba(69, 36, 128, .30);
+  color: var(--po-icon-purple);
+  background: #F6F1FC;
+}
+
+[data-testid="public-order"] .po-dialog-content.po-form-dialog,
+[data-testid="public-order"] .po-dialog-content.po-dialog-surface {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+[data-testid="public-order"] .po-payment-progress-ring {
+  display: block;
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(59, 130, 246, .22);
+  border-top-color: #3B82F6;
+  border-radius: 999px;
+  animation: po-payment-spin .8s linear infinite;
+}
+@keyframes po-payment-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="public-order"] .po-payment-progress-ring { animation: none; }
+}
+
+/* Final purple identity pass for portal dialog marks and notification center. */
+[data-testid="public-order"] .po-dialog-hero .po-badge-mark,
+[data-testid="public-order"] .po-notifs-hero-icon {
+  background: #452480 !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 12px 24px rgba(69,36,128,.24) !important;
+}
+[data-testid="public-order"] .po-notif-item-icon,
+[data-testid="public-order"] .po-notif-unread .po-notif-item-icon {
+  background: #F0EAFB !important;
+  color: #452480 !important;
+}
+
+/* Radix renders these dialog surfaces under body, outside public-order. Keep
+   the purple identity effective in register, password-recovery, change-password
+   and notification dialogs as well as on the dashboard. */
+.po-dialog-hero .po-badge-mark,
+.po-notifs-hero-icon {
+  background: #452480 !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 12px 24px rgba(69,36,128,.24) !important;
+}
+.po-notif-item-icon,
+.po-notif-unread .po-notif-item-icon {
+  background: #F0EAFB !important;
+  color: #452480 !important;
+}
+
+/* The favorite and contact controls live inside the shared phone field. */
+.po-recipient-input-shell {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.po-recipient-input-shell .po-recipient-phone-input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 6.4rem !important;
+  padding-left: .75rem !important;
+}
+.po-recipient-input-actions {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: .45rem;
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  transform: translateY(-50%);
+}
+.po-recipient-input-actions > div {
+  position: relative;
+  display: flex;
+}
+.po-recipient-input-actions .po-recipient-action,
+.po-recipient-input-actions > button {
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 !important;
+  border-radius: 10px !important;
+}
+.po-recipient-input-actions .po-recipient-action svg,
+.po-recipient-input-actions > button svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+.po-recipient-input-shell .po-favorite-popover {
+  top: calc(100% + .35rem);
+  right: 0;
+  left: auto;
+  margin-top: 0;
+}
+
+/* Payment confirmation uses an RTL surface, but its close affordance stays
+   in the conventional top-left position for quick dismissal. */
+[data-testid="po-payment-confirmation-dialog"] > button[aria-label],
+[data-testid="po-payment-confirmation-dialog"] > button {
+  right: auto !important;
+  left: 1rem !important;
+  top: 1rem !important;
+}
+
+/* Web launch surface: never show the legacy dark logo canvas. */
+[data-testid="public-order"].po-portal-shell,
+body:has([data-testid="public-order"]) {
+  background: #FFFFFF !important;
+}
+[data-testid="public-order"].po-portal-shell::before,
+[data-testid="public-order"].po-portal-shell::after {
+  background: #FFFFFF !important;
+  opacity: 1 !important;
+}
+
+/* Customer-facing admin notification popup and payment instructions. */
+.po-customer-notification-popup {
+  border-width: 1px !important;
+  box-shadow: 0 30px 80px rgba(18,38,74,.22), 0 8px 24px rgba(59,130,246,.12) !important;
+}
+.po-customer-notification-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(145deg, #245C9D, #3B82F6);
+  box-shadow: 0 12px 24px -14px rgba(36,92,157,.9);
+}
+.po-payment-instructions-dialog {
+  box-shadow: 0 28px 70px rgba(18,38,74,.18), 0 8px 24px rgba(59,130,246,.08) !important;
+}
+@media (max-width: 640px) {
+  .po-customer-notification-popup,
+  .po-payment-instructions-dialog {
+    max-height: calc(100dvh - 1rem) !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .po-customer-notification-popup,
+  .po-payment-instructions-dialog { scroll-behavior: auto; }
+}
+
+/* The admin notification popup follows the balance-card surface while using
+   white accents for a cleaner, more readable customer-facing alert. */
+[data-testid="public-order"] .po-hero-card.po-balance-card-surface,
+.po-customer-notification-popup.po-balance-card-surface {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #452480 !important;
+  color: #FFFFFF !important;
+  background:
+    radial-gradient(circle at 88% 8%, rgba(255,255,255,.18), transparent 30%),
+    linear-gradient(135deg, #221340 0%, #452480 100%) !important;
+  box-shadow: 0 18px 38px rgba(34,19,64,.24), 0 3px 10px rgba(34,19,64,.08) !important;
+}
+[data-testid="public-order"] .po-hero-card.po-balance-card-surface::before,
+.po-customer-notification-popup.po-balance-card-surface::before {
+  content: "";
+  position: absolute;
+  width: 210px;
+  height: 210px;
+  left: -100px;
+  bottom: -132px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 50%;
+  box-shadow: 0 0 0 25px rgba(255,255,255,.04), 0 0 0 54px rgba(255,255,255,.025);
+  pointer-events: none;
+}
+[data-testid="public-order"] .po-hero-card.po-balance-card-surface::after,
+.po-customer-notification-popup.po-balance-card-surface::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.9), transparent);
+  pointer-events: none;
+}
+.po-customer-notification-popup.po-balance-card-surface > * {
+  position: relative;
+  z-index: 1;
+}
+.po-customer-notification-popup.po-balance-card-surface .po-customer-notification-header {
+  border-color: rgba(255,255,255,.28) !important;
+}
+.po-customer-notification-popup.po-balance-card-surface .po-customer-notification-meta {
+  color: rgba(255,255,255,.76) !important;
+}
+.po-customer-notification-popup.po-balance-card-surface [data-testid="po-customer-notification-title"],
+.po-customer-notification-popup.po-balance-card-surface [data-testid="po-customer-notification-message"] {
+  color: #FFFFFF !important;
+}
+.po-customer-notification-popup.po-balance-card-surface [data-testid="po-customer-notification-message"] {
+  border-color: rgba(255,255,255,.36) !important;
+  background: rgba(255,255,255,.14) !important;
+  backdrop-filter: blur(12px);
+}
+.po-customer-notification-popup.po-balance-card-surface .po-customer-notification-icon {
+  color: #221340;
+  background: linear-gradient(135deg, #FFFFFF, #EAF1FA);
+  box-shadow: 0 12px 24px -14px rgba(255,255,255,.82);
+}
+.po-customer-notification-popup.po-balance-card-surface [data-testid="po-close-customer-notification-button"] {
+  background: #FFFFFF !important;
+  color: #221340 !important;
+  box-shadow: 0 8px 18px -10px rgba(255,255,255,.75) !important;
+}
+
+
+/* Direct /net purchase choice dialogs share the customer portal white/purple visual language. */
+.po-net-choice-dialog {
+  /* DialogContent is portalled to body; keep this surface fixed like the
+     working favorites/recovery dialogs instead of letting it flow in a
+     transformed page container. */
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  transform: translate(-50%, -50%) !important;
+  z-index: 60 !important;
+  isolation: isolate;
+  opacity: 1 !important;
+  background: #FFFFFF !important;
+  border: 1px solid #E5DDF0 !important;
+  border-radius: 30px !important;
+  color: #221340 !important;
+  box-shadow: 0 24px 70px rgba(34, 19, 64, .20), 0 5px 16px rgba(34, 19, 64, .08) !important;
+}
+.po-net-choice-dialog::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .28;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(69, 36, 128, .08) 47%, rgba(69, 36, 128, .08) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(155, 123, 232, .08) 47%, rgba(155, 123, 232, .08) 49%, transparent 50%);
+  background-size: 68px 68px;
+}
+.po-net-choice-header {
+  position: relative;
+  z-index: 1;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #EEE8F7;
+}
+.po-net-choice-option {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 68px;
+  padding: 12px 14px;
+  border: 1px solid #E5DDF0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .94);
+  color: #221340;
+  text-align: right;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.po-net-choice-option:hover,
+.po-net-choice-option:focus-visible {
+  border-color: #8D6BD5;
+  background: #FBF9FF;
+  box-shadow: 0 8px 20px rgba(69, 36, 128, .10);
+  outline: none;
+}
+.po-net-choice-option:active { transform: scale(.99); }
+.po-net-choice-option.is-selected {
+  border-color: #452480;
+  background: linear-gradient(135deg, #F8F3FF, #FFFFFF);
+  box-shadow: 0 8px 22px rgba(69, 36, 128, .14);
+}
+.po-net-choice-check {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #D9CDED;
+  border-radius: 999px;
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 900;
+}
+.po-net-choice-check.is-selected {
+  border-color: #452480;
+  background: #452480;
+}
+.po-net-bank-option { min-height: 76px; }
+.po-payment-account-card {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: .75rem !important;
+  background: #fff !important;
+  color: #221340;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08) !important;
+}
+.po-net-bank-account-card {
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.po-net-bank-account-card.is-clickable {
+  cursor: pointer;
+}
+.po-net-bank-account-card.is-clickable:focus-visible {
+  outline: 3px solid rgba(69, 36, 128, .24);
+  outline-offset: 2px;
+}
+.po-net-bank-account-card.is-clickable:active {
+  transform: scale(.995);
+}
+.po-net-bank-account-card:hover,
+.po-net-bank-account-card:focus-within {
+  border-color: #b8a8d6 !important;
+  box-shadow: 0 8px 20px rgba(69, 36, 128, .10) !important;
+}
+.po-net-bank-account-card.is-selected {
+  border-color: #452480 !important;
+  box-shadow: 0 8px 22px rgba(69, 36, 128, .14) !important;
+}
+@media (max-width: 640px) {
+  .po-net-choice-dialog {
+    top: 50% !important;
+    left: 50% !important;
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    padding: 18px !important;
+    border-radius: 24px !important;
+    transform: translate(-50%, -50%) !important;
+  }
+}
+
+
+/* GAWAD NET login reference composition and embedded direct-card purchase flow. */
+[data-testid="public-order"].po-login-shell {
+  min-height: 100dvh;
+  padding-top: clamp(14px, 3.2vw, 32px) !important;
+  padding-bottom: clamp(22px, 5vw, 52px) !important;
+  background:
+    radial-gradient(520px 240px at 50% 5%, rgba(255,255,255,.98), transparent 75%),
+    linear-gradient(180deg, #fbfdff 0%, #f3f8ff 58%, #edf5ff 100%) !important;
+}
+[data-testid="public-order"].po-login-shell::before {
+  opacity: .52;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(113,145,185,.12) 47%, rgba(113,145,185,.12) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(113,145,185,.08) 47%, rgba(113,145,185,.08) 49%, transparent 50%),
+    radial-gradient(480px 260px at 2% 0%, rgba(108,75,201,.12), transparent 72%),
+    radial-gradient(460px 260px at 100% 100%, rgba(212,175,55,.10), transparent 72%);
+  background-size: 74px 74px, 74px 74px, auto, auto;
+}
+[data-testid="public-order"].po-login-shell::after {
+  right: -18%;
+  left: -18%;
+  bottom: -2%;
+  height: 13%;
+  border-radius: 50% 50% 0 0;
+  background: linear-gradient(180deg, rgba(108,75,201,.30), rgba(212,175,55,.10) 38%, rgba(225,241,255,.08));
+  filter: blur(8px);
+}
+[data-testid="public-order"] .po-portal-width { width: min(100%, 590px); }
+[data-testid="public-order"] .po-login-brand { margin-bottom: clamp(14px, 3vw, 24px); }
+[data-testid="public-order"] .po-login-brand img {
+  width: 92px !important;
+  height: 92px !important;
+  border: 5px solid rgba(255,255,255,.95);
+  box-shadow: 0 12px 28px rgba(42,27,82,.14), 0 0 0 2px rgba(212,175,55,.22);
+}
+[data-testid="public-order"] .po-login-brand .po-brand-name { color: #28115f !important; font-size: clamp(2rem, 8vw, 2.6rem); letter-spacing: .02em; }
+[data-testid="public-order"] .po-login-brand .po-brand-subtitle { color: #526789 !important; font-size: .95rem; }
+[data-testid="public-order"] .po-auth-card {
+  padding: clamp(18px, 4vw, 30px) clamp(16px, 4vw, 28px) 22px !important;
+  border-radius: 38px !important;
+  border: 1px solid rgba(186,202,224,.68) !important;
+  box-shadow: 0 24px 56px rgba(61,95,132,.16), 0 3px 12px rgba(61,95,132,.06) !important;
+}
+[data-testid="public-order"] .po-login-promo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 112px;
+  margin: -4px 0 24px;
+  overflow: hidden;
+  padding: 13px 15px;
+  border: 0;
+  border-radius: 25px;
+  color: #fff;
+  text-align: right;
+  background: radial-gradient(circle at 17% 55%, rgba(186,126,255,.72), transparent 22%), linear-gradient(135deg, #251060 0%, #4a1ca8 55%, #6c36d2 100%);
+  box-shadow: 0 16px 28px -16px rgba(55,19,138,.72), inset 0 1px 0 rgba(255,255,255,.22);
+  transition: transform .16s ease, box-shadow .18s ease;
+}
+[data-testid="public-order"] .po-login-promo::before,
+[data-testid="public-order"] .po-login-promo::after { content: ""; position: absolute; pointer-events: none; border: 1px solid rgba(244,222,143,.5); border-radius: 999px; transform: rotate(-14deg); }
+[data-testid="public-order"] .po-login-promo::before { width: 220px; height: 110px; left: -56px; top: 32px; }
+[data-testid="public-order"] .po-login-promo::after { width: 160px; height: 90px; right: -48px; bottom: -46px; opacity: .35; }
+[data-testid="public-order"] .po-login-promo:active { transform: scale(.985); }
+[data-testid="public-order"] .po-login-promo-art,
+[data-testid="public-order"] .po-login-promo-cart { position: relative; z-index: 1; display: grid; place-items: center; flex: 0 0 auto; color: #f7d86d; }
+[data-testid="public-order"] .po-login-promo-art { width: 54px; height: 54px; border: 2px solid rgba(255,255,255,.76); border-radius: 17px; transform: rotate(-8deg); background: linear-gradient(145deg, rgba(255,255,255,.24), rgba(112,53,222,.16)); box-shadow: 0 0 22px rgba(195,136,255,.66); }
+[data-testid="public-order"] .po-login-promo-cart { width: 43px; height: 43px; border: 2px solid #f8dc76; border-radius: 50%; background: rgba(45,16,116,.38); }
+[data-testid="public-order"] .po-login-promo-copy { position: relative; z-index: 1; display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+[data-testid="public-order"] .po-login-promo-copy strong { font-size: clamp(1.25rem, 5vw, 1.7rem); font-weight: 950; line-height: 1.25; }
+[data-testid="public-order"] .po-login-promo-copy small { color: #fff; font-size: .92rem; font-weight: 800; }
+[data-testid="public-order"] .po-login-promo-copy em { align-self: flex-start; margin-top: 7px; padding: 3px 9px; border: 1px solid #f8dc76; border-radius: 999px; color: #fff8d7; font-size: .67rem; font-style: normal; white-space: nowrap; }
+[data-testid="public-order"] .po-login-welcome { margin-bottom: 20px; }
+[data-testid="public-order"] .po-login-welcome-title { color: #20105a !important; font-size: clamp(1.65rem, 6vw, 2.1rem); font-weight: 950; }
+[data-testid="public-order"] .po-login-welcome p { color: #66758a !important; font-size: .96rem; }
+[data-testid="public-order"] .po-auth-card input,
+[data-testid="public-order"] .po-auth-card .po-phone-field { min-height: 58px; }
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"] { background: linear-gradient(100deg, #4b16c4 0%, #6b2dde 48%, #7d4be9 100%) !important; box-shadow: 0 14px 26px rgba(93,42,210,.26), inset 0 1px 0 rgba(255,255,255,.22) !important; }
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"]:hover { background: linear-gradient(100deg, #4210b4 0%, #5d24c8 48%, #7240db 100%) !important; }
+[data-testid="public-order"] .po-register-button { border: 1px solid #d2c3f6; color: #4d16bd; background: #fbf9ff; }
+[data-testid="public-order"] .po-register-button:hover { background: #f1ebff; }
+[data-testid="public-order"] .po-direct-purchase-button {
+  display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; min-height: 58px; margin-top: 2px;
+  border: 2px solid #6930d7; border-radius: 20px; color: #4d16bd; background: linear-gradient(180deg, #fff, #f7f2ff); font-size: 1.05rem; font-weight: 950; box-shadow: 0 7px 17px rgba(100,49,201,.10); transition: transform .16s ease, background .18s ease;
+}
+[data-testid="public-order"] .po-direct-purchase-button:hover { background: #f0e8ff; }
+[data-testid="public-order"] .po-direct-purchase-button:active { transform: scale(.985); }
+[data-testid="public-order"] .po-login-purchase-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  margin: -17px 0 14px;
+  border: 0;
+  color: #5a20c4;
+  background: transparent;
+  font-size: .82rem;
+  font-weight: 950;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+[data-testid="public-order"] .po-login-purchase-link:hover { color: #3f138f; }
+[data-testid="public-order"] .po-login-purchase-link:active { transform: scale(.98); }
+.po-direct-purchase-dialog {
+  width: min(calc(100vw - 1rem), 610px) !important;
+  max-width: 610px !important;
+  max-height: calc(100dvh - 1rem) !important;
+  overflow-y: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 30px !important;
+  background: #f8f7fc !important;
+  box-shadow: 0 28px 70px rgba(32,14,83,.28) !important;
+}
+.po-direct-purchase-dialog > button { z-index: 8; top: 14px; left: 14px; right: auto; color: #fff; background: rgba(40,14,100,.32); border-radius: 999px; }
+.direct-card-purchase-flow { min-width: 0; color: #221340; }
+.direct-card-purchase-flow.is-embedded { padding-bottom: 8px; }
+.direct-card-purchase-header { position: relative; display: flex; align-items: center; gap: 12px; min-height: 112px; padding: 20px 48px 18px 18px; color: #fff; background: radial-gradient(circle at 85% 0%, rgba(173,126,255,.55), transparent 35%), linear-gradient(135deg, #251060, #5b25c4 62%, #7541df); }
+.direct-card-purchase-header-icon { display: grid; place-items: center; flex: 0 0 auto; width: 48px; height: 48px; border: 1px solid rgba(248,220,118,.75); border-radius: 16px; color: #f8dc76; background: rgba(30,10,93,.25); }
+.direct-card-purchase-kicker { color: #f8dc76; font-size: .68rem; font-weight: 800; }
+.direct-card-purchase-title { font-size: 1.35rem; font-weight: 950; line-height: 1.3; }
+.direct-card-purchase-header p { margin: 4px 0 0; color: rgba(255,255,255,.82); font-size: .76rem; line-height: 1.7; }
+.direct-card-purchase-close { position: absolute; top: 16px; left: 16px; display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid rgba(255,255,255,.45); border-radius: 999px; color: #fff; background: rgba(30,10,93,.28); font-size: 1.4rem; line-height: 1; }
+.direct-card-purchase-form { display: grid; gap: 15px; padding: 18px; background: #fff; }
+.direct-card-purchase-select, .direct-card-purchase-input { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 54px; gap: 12px; border: 1px solid #d8d2e4; border-radius: 17px; background: #fbfaff; padding: 0 14px; color: #221340; font-size: .88rem; font-weight: 800; text-align: right; outline: none; }
+.direct-card-purchase-select:focus, .direct-card-purchase-input:focus { border-color: #6930d7; box-shadow: 0 0 0 4px rgba(105,48,215,.12); }
+.direct-card-purchase-input { display: block; text-align: left; direction: ltr; }
+.direct-card-purchase-price { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #e1d6f4; border-radius: 17px; color: #625879; background: #faf8ff; font-size: .8rem; }
+.direct-card-purchase-price strong { color: #5420c3; font-size: 1rem; }
+.direct-card-purchase-bank { padding: 13px; border: 1px solid #ded0f2; border-radius: 18px; background: #fcfaff; }
+.direct-card-purchase-loading, .direct-card-purchase-result { margin: 16px; padding: 26px 16px; border-radius: 20px; background: #fff; text-align: center; }
+.direct-card-purchase-result { margin: 0; border-top: 1px solid #e7def4; border-radius: 0 0 30px 30px; }
+.po-portal-category-select { background: #fbfaff !important; }
+[data-sonner-toaster][data-y-position="top"] { top: max(12px, env(safe-area-inset-top)) !important; z-index: 120 !important; }
+@media (max-width: 420px) {
+  [data-testid="public-order"] .po-login-promo { min-height: 102px; padding-inline: 10px; }
+  [data-testid="public-order"] .po-login-promo-art { width: 44px; height: 44px; }
+  [data-testid="public-order"] .po-login-promo-cart { width: 36px; height: 36px; }
+  [data-testid="public-order"] .po-login-promo-copy strong { font-size: 1.12rem; }
+  [data-testid="public-order"] .po-login-promo-copy em { font-size: .58rem; }
+  .direct-card-purchase-header { padding-right: 15px; }
+  .direct-card-purchase-header p { font-size: .69rem; }
+}
+
+
+/* Direct-card terminal result: top alert dialog for approved/rejected outcomes. */
+.direct-card-purchase-result-dialog {
+  position: fixed !important;
+  top: clamp(12px, 3.5vh, 32px) !important;
+  right: 50% !important;
+  left: auto !important;
+  bottom: auto !important;
+  width: min(calc(100vw - 1rem), 430px) !important;
+  max-width: 430px !important;
+  max-height: calc(100dvh - 24px) !important;
+  transform: translateX(50%) !important;
+  overflow-y: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 28px !important;
+  background: #fff !important;
+  box-shadow: 0 24px 70px rgba(30, 12, 76, .28), 0 4px 16px rgba(30, 12, 76, .12) !important;
+  animation: direct-card-result-in .22s cubic-bezier(.23,1,.32,1) both;
+}
+.direct-card-purchase-result-dialog > button { top: 12px; left: 12px; right: auto; z-index: 3; border-radius: 999px; color: #452480; background: #f3effb; }
+.direct-card-purchase-result-dialog .direct-card-purchase-result { margin: 0; border: 0; border-radius: 28px; padding: 28px 18px 18px; }
+@keyframes direct-card-result-in { from { opacity: 0; transform: translateX(50%) translateY(-14px) !important; } to { opacity: 1; transform: translateX(50%) translateY(0) !important; } }
+@media (prefers-reduced-motion: reduce) { .direct-card-purchase-result-dialog { animation: none; } }
+@media (max-width: 420px) { .direct-card-purchase-result-dialog { top: 8px !important; max-height: calc(100dvh - 16px) !important; } }
+
+
+/* Compact modern density pass for the requested tighter mobile composition. */
+[data-testid="public-order"] .po-login-brand { margin-bottom: 10px; }
+[data-testid="public-order"] .po-login-brand img { width: 78px !important; height: 78px !important; border-width: 4px; }
+[data-testid="public-order"] .po-login-brand .po-brand-name { font-size: clamp(1.8rem, 7vw, 2.25rem); }
+[data-testid="public-order"] .po-login-brand .po-brand-subtitle { font-size: .82rem; }
+[data-testid="public-order"] .po-auth-card { padding: 18px 16px 16px !important; border-radius: 30px !important; }
+[data-testid="public-order"] .po-login-promo { min-height: 88px; margin: -2px 0 14px; gap: 8px; padding: 9px 10px; border-radius: 20px; }
+[data-testid="public-order"] .po-login-promo-art { width: 43px; height: 43px; border-radius: 14px; }
+[data-testid="public-order"] .po-login-promo-cart { width: 34px; height: 34px; }
+[data-testid="public-order"] .po-login-promo-copy strong { font-size: clamp(1.08rem, 4.8vw, 1.42rem); }
+[data-testid="public-order"] .po-login-promo-copy small { font-size: .78rem; }
+[data-testid="public-order"] .po-login-promo-copy em { margin-top: 4px; padding: 2px 7px; font-size: .57rem; }
+[data-testid="public-order"] .po-login-welcome { margin-bottom: 11px; }
+[data-testid="public-order"] .po-login-welcome-title { font-size: clamp(1.45rem, 5.8vw, 1.8rem); }
+[data-testid="public-order"] .po-login-welcome p { margin-top: 4px !important; font-size: .82rem; line-height: 1.6; }
+[data-testid="public-order"] .po-auth-card [data-testid="po-login-form"] > :not([hidden]) ~ :not([hidden]) { margin-top: .72rem; }
+[data-testid="public-order"] .po-auth-card input,
+[data-testid="public-order"] .po-auth-card .po-phone-field,
+[data-testid="public-order"] .po-auth-card .po-phone-field > div:first-child,
+[data-testid="public-order"] .po-auth-card .po-phone-field input { min-height: 50px; }
+[data-testid="public-order"] .po-auth-card .po-phone-field > div:first-child { border-radius: 14px; }
+[data-testid="public-order"] .po-auth-card [data-testid="po-password"] { min-height: 50px; }
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"] { height: 56px !important; min-height: 56px; border-radius: 16px !important; }
+[data-testid="public-order"] .po-register-button,
+[data-testid="public-order"] .po-direct-purchase-button { min-height: 50px; border-radius: 16px; font-size: .94rem; }
+[data-testid="public-order"] .po-direct-purchase-button { gap: 7px; }
+.direct-card-purchase-header { min-height: 94px; gap: 9px; padding: 14px 44px 13px 14px; }
+.direct-card-purchase-header-icon { width: 42px; height: 42px; border-radius: 13px; }
+.direct-card-purchase-title { font-size: 1.2rem; }
+.direct-card-purchase-header p { margin-top: 2px; font-size: .68rem; line-height: 1.5; }
+.direct-card-purchase-form { gap: 10px; padding: 14px; }
+.direct-card-purchase-select, .direct-card-purchase-input { min-height: 48px; border-radius: 14px; padding-inline: 12px; font-size: .82rem; }
+.direct-card-purchase-price { padding: 9px 12px; border-radius: 14px; }
+.direct-card-purchase-bank { padding: 10px; border-radius: 15px; }
+.direct-card-purchase-result-dialog { top: 7px !important; max-height: calc(100dvh - 14px) !important; border-radius: 22px !important; }
+.direct-card-purchase-result-dialog .direct-card-purchase-result { padding: 20px 14px 14px; border-radius: 22px; }
+
+
+/* Direct purchase window uses the exact dashboard palette, not a separate bright-purple theme. */
+.po-direct-purchase-dialog {
+  border: 1px solid #D9CBEF !important;
+  background: #FFFFFF !important;
+  box-shadow: 0 28px 70px rgba(34,19,64,.24), 0 4px 16px rgba(34,19,64,.10) !important;
+}
+.po-direct-purchase-dialog .direct-card-purchase-header {
+  background: radial-gradient(circle at 86% 0%, rgba(212,175,55,.22), transparent 34%), linear-gradient(135deg, #221340 0%, #452480 64%, #5A2FA0 100%) !important;
+}
+.po-direct-purchase-dialog .direct-card-purchase-header-icon {
+  border-color: rgba(212,175,55,.72) !important;
+  color: #D4AF37 !important;
+  background: rgba(255,255,255,.12) !important;
+}
+.po-direct-purchase-dialog .direct-card-purchase-kicker { color: #D4AF37 !important; }
+.po-direct-purchase-dialog .direct-card-purchase-form { background: #FFFFFF !important; }
+.po-direct-purchase-dialog .direct-card-purchase-select,
+.po-direct-purchase-dialog .direct-card-purchase-input {
+  border-color: #D9CBEF !important;
+  background: #FFFFFF !important;
+  color: #221340 !important;
+}
+.po-direct-purchase-dialog .direct-card-purchase-select:focus,
+.po-direct-purchase-dialog .direct-card-purchase-input:focus {
+  border-color: #452480 !important;
+  box-shadow: 0 0 0 4px rgba(69,36,128,.12) !important;
+}
+.po-direct-purchase-dialog .direct-card-purchase-price,
+.po-direct-purchase-dialog .direct-card-purchase-bank {
+  border-color: #D9CBEF !important;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8F3FF 100%) !important;
+}
+.po-direct-purchase-dialog .direct-card-purchase-price strong { color: #452480 !important; }
+.po-direct-purchase-dialog button[data-testid="net-submit"] {
+  background: linear-gradient(135deg, #221340 0%, #452480 100%) !important;
+  border: 1px solid #D4AF37 !important;
+  box-shadow: 0 10px 22px rgba(34,19,64,.16) !important;
+}
+
+/* Login surface aligned with the authenticated home/dashboard palette. */
+[data-testid="public-order"].po-login-shell {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 56%, #FFFFFF 100%) !important;
+  color: #221340 !important;
+}
+[data-testid="public-order"].po-login-shell::before {
+  opacity: .44;
+  background-image:
+    linear-gradient(135deg, transparent 46%, rgba(69,36,128,.075) 47%, rgba(69,36,128,.075) 49%, transparent 50%),
+    linear-gradient(45deg, transparent 46%, rgba(212,175,55,.085) 47%, rgba(212,175,55,.085) 49%, transparent 50%),
+    radial-gradient(480px 260px at 2% 0%, rgba(69,36,128,.10), transparent 72%),
+    radial-gradient(460px 260px at 100% 100%, rgba(212,175,55,.08), transparent 72%);
+  background-size: 74px 74px, 74px 74px, auto, auto;
+}
+[data-testid="public-order"].po-login-shell::after {
+  background: linear-gradient(180deg, rgba(69,36,128,.18), rgba(212,175,55,.08) 38%, rgba(255,255,255,.04)) !important;
+}
+[data-testid="public-order"] .po-auth-card {
+  border-color: #D9CBEF !important;
+  background: rgba(255,255,255,.98) !important;
+  box-shadow: 0 24px 56px rgba(34,19,64,.12), 0 3px 12px rgba(34,19,64,.05) !important;
+}
+[data-testid="public-order"] .po-login-promo {
+  background: radial-gradient(circle at 17% 55%, rgba(212,175,55,.24), transparent 22%), linear-gradient(135deg, #221340 0%, #452480 62%, #5A2FA0 100%) !important;
+  box-shadow: 0 16px 28px -16px rgba(34,19,64,.72), inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+[data-testid="public-order"] .po-login-promo-art {
+  border-color: rgba(212,175,55,.76) !important;
+  color: #D4AF37 !important;
+  background: rgba(255,255,255,.12) !important;
+  box-shadow: 0 0 22px rgba(212,175,55,.24) !important;
+}
+[data-testid="public-order"] .po-login-promo::before,
+[data-testid="public-order"] .po-login-promo::after {
+  border-color: rgba(212,175,55,.48) !important;
+}
+[data-testid="public-order"] .po-login-promo-copy em {
+  border-color: #D4AF37 !important;
+  color: #FFF8E5 !important;
+}
+[data-testid="public-order"] .po-login-welcome-title,
+[data-testid="public-order"] .po-login-brand .po-brand-name {
+  color: #221340 !important;
+}
+[data-testid="public-order"] .po-login-welcome p,
+[data-testid="public-order"] .po-login-brand .po-brand-subtitle {
+  color: #6B6278 !important;
+}
+[data-testid="public-order"] .po-auth-card input,
+[data-testid="public-order"] .po-auth-card .po-phone-field > div:first-child {
+  border-color: #D9CBEF !important;
+  background: #FFFFFF !important;
+  color: #221340 !important;
+}
+[data-testid="public-order"] .po-auth-card input:focus,
+[data-testid="public-order"] .po-auth-card .po-phone-field > div:first-child:focus-within {
+  border-color: #452480 !important;
+  box-shadow: 0 0 0 4px rgba(69,36,128,.12) !important;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"] {
+  background: linear-gradient(135deg, #221340 0%, #452480 100%) !important;
+  border-color: #D4AF37 !important;
+  box-shadow: 0 12px 24px rgba(34,19,64,.18), inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+[data-testid="public-order"] .po-auth-card [data-testid="po-login"]:hover {
+  background: linear-gradient(135deg, #1B0F35 0%, #5A2FA0 100%) !important;
+}
+[data-testid="public-order"] .po-register-button {
+  border-color: #452480 !important;
+  color: #452480 !important;
+  background: #FFFFFF !important;
+}
+[data-testid="public-order"] .po-register-button:hover {
+  background: #F8F3FF !important;
+}
+[data-testid="public-order"] .po-login-purchase-link,
+[data-testid="public-order"] .po-auth-card button[data-testid="po-forgot"] {
+  color: #452480 !important;
+}
+
+/* Admin notification popup: strict two-color customer alert palette — purple and white only. */
+.po-customer-notification-popup.po-balance-card-surface {
+  border-color: #452480 !important;
+  background: linear-gradient(135deg, #221340 0%, #452480 100%) !important;
+  box-shadow: 0 28px 70px rgba(34,19,64,.34), 0 8px 24px rgba(69,36,128,.22) !important;
+}
+.po-customer-notification-popup.po-balance-card-surface::before,
+.po-customer-notification-popup.po-balance-card-surface::after {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.92), transparent) !important;
+}
+.po-customer-notification-popup.po-balance-card-surface .po-customer-notification-header {
+  border-color: rgba(255,255,255,.28) !important;
+}
+.po-customer-notification-popup.po-balance-card-surface [data-testid="po-customer-notification-title"] {
+  color: #FFFFFF !important;
+}
+.po-customer-notification-popup.po-balance-card-surface .po-customer-notification-title {
+  display: block;
+  width: 100%;
+  padding: 9px 13px;
+  border: 1px solid #FFFFFF;
+  border-right: 5px solid #FFFFFF;
+  border-radius: 12px;
+  background: #FFFFFF;
+  color: #452480 !important;
+  box-shadow: 0 8px 18px -12px rgba(255,255,255,.9);
+}
+.po-customer-notification-popup.po-balance-card-surface .po-customer-notification-meta {
+  color: rgba(255,255,255,.76) !important;
+}
+.po-customer-notification-popup.po-balance-card-surface [data-testid="po-customer-notification-message"] {
+  border-color: #FFFFFF !important;
+  background: #FFFFFF !important;
+  color: #221340 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+.po-customer-notification-popup.po-balance-card-surface .po-customer-notification-icon {
+  color: #452480 !important;
+  background: #FFFFFF !important;
+  box-shadow: 0 12px 24px -14px rgba(255,255,255,.82) !important;
+}
+.po-customer-notification-popup.po-balance-card-surface [data-testid="po-close-customer-notification-button"] {
+  border: 1px solid #FFFFFF !important;
+  background: #FFFFFF !important;
+  color: #452480 !important;
+  box-shadow: 0 8px 18px -10px rgba(255,255,255,.75) !important;
+}
+.po-customer-notification-popup.po-balance-card-surface [data-testid="po-close-customer-notification-button"]:hover {
+  background: #F8F3FF !important;
+  color: #221340 !important;
+}
+
+
+/* Compact modern login pass: keep only the two credential fields visually primary. */
+[data-testid="public-order"].po-login-shell .po-topbar { margin-bottom: 12px !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card {
+  padding: 14px 14px 16px !important;
+  border-radius: 28px !important;
+  box-shadow: 0 16px 34px rgba(34,19,64,.10), 0 2px 8px rgba(34,19,64,.04) !important;
+}
+[data-testid="public-order"].po-login-shell .po-login-promo {
+  min-height: 78px !important;
+  padding: 12px 14px !important;
+  border-radius: 20px !important;
+}
+[data-testid="public-order"].po-login-shell .po-login-promo-art { width: 40px !important; height: 40px !important; border-radius: 13px !important; }
+[data-testid="public-order"].po-login-shell .po-login-promo-art svg { width: 22px !important; height: 22px !important; }
+[data-testid="public-order"].po-login-shell .po-login-promo-copy strong { font-size: 1rem !important; }
+[data-testid="public-order"].po-login-shell .po-login-promo-copy small { margin-top: 1px !important; font-size: .66rem !important; }
+[data-testid="public-order"].po-login-shell .po-login-promo-copy em { margin-top: 2px !important; font-size: .58rem !important; }
+[data-testid="public-order"].po-login-shell .po-login-purchase-link { margin-top: 5px !important; font-size: .72rem !important; }
+[data-testid="public-order"].po-login-shell .po-login-welcome { margin-bottom: 10px !important; }
+[data-testid="public-order"].po-login-shell .po-login-welcome-title { font-size: 1.22rem !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card form { gap: 0 !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card form > * + * { margin-top: .62rem !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card label { font-size: .82rem !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card input,
+[data-testid="public-order"].po-login-shell .po-auth-card .po-phone-field { min-height: 48px !important; border-radius: 14px !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card .po-phone-field > div:first-child,
+[data-testid="public-order"].po-login-shell .po-auth-card .po-phone-field > div:first-child input { min-height: 46px !important; border-radius: 12px !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card [data-testid="po-password"] { height: 48px !important; min-height: 48px !important; padding-right: 40px !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card [data-testid="po-forgot"] { font-size: .78rem !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card [data-testid="po-login"] { height: 48px !important; border-radius: 14px !important; font-size: .94rem !important; }
+[data-testid="public-order"].po-login-shell .po-register-button { min-height: 42px !important; margin-top: 2px !important; border-radius: 14px !important; font-size: .82rem !important; }
+
+
+/* Explicit compact credential fields: applies to the real phone/password markup. */
+[data-testid="public-order"].po-login-shell .po-credential-field > label { display: block; margin-bottom: 0 !important; color: #221340 !important; font-size: .78rem !important; line-height: 1.25 !important; }
+[data-testid="public-order"].po-login-shell .po-credential-field .po-phone-field {
+  height: 48px !important;
+  min-height: 48px !important;
+  gap: 6px !important;
+  padding: 0 !important;
+  border: 1px solid #D9CBEF !important;
+  border-radius: 14px !important;
+  background: #F7F5FB !important;
+  box-shadow: inset 0 1px 2px rgba(34,19,64,.04) !important;
+}
+[data-testid="public-order"].po-login-shell .po-credential-field .po-phone-field > div:first-child {
+  height: 46px !important;
+  min-height: 46px !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  background: #EEEAF5 !important;
+  padding-inline: 10px !important;
+  color: #452480 !important;
+  font-size: .78rem !important;
+}
+[data-testid="public-order"].po-login-shell .po-credential-field .po-phone-field > div:last-child { height: 46px !important; }
+[data-testid="public-order"].po-login-shell .po-credential-field .po-phone-field input {
+  height: 46px !important;
+  min-height: 46px !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  background: transparent !important;
+  padding-inline: 10px 38px !important;
+  color: #221340 !important;
+  font-size: .94rem !important;
+  box-shadow: none !important;
+}
+[data-testid="public-order"].po-login-shell .po-password-field { height: 48px !important; }
+[data-testid="public-order"].po-login-shell .po-password-field [data-testid="po-password"] {
+  height: 48px !important;
+  min-height: 48px !important;
+  border: 1px solid #D9CBEF !important;
+  border-radius: 14px !important;
+  background: #F7F5FB !important;
+  color: #221340 !important;
+  font-size: .94rem !important;
+  box-shadow: inset 0 1px 2px rgba(34,19,64,.04) !important;
+}
+[data-testid="public-order"].po-login-shell .po-password-field [data-testid="po-password"]:focus,
+[data-testid="public-order"].po-login-shell .po-credential-field .po-phone-field:focus-within {
+  border-color: #452480 !important;
+  background: #FFFFFF !important;
+  box-shadow: 0 0 0 3px rgba(69,36,128,.12) !important;
+}
+[data-testid="public-order"].po-login-shell .po-credential-field .po-filled-field-icon { color: #452480 !important; }
+
+
+/* Payment choice readability: never clip category names, account names, or instructions. */
+.po-net-choice-dialog {
+  width: min(calc(100vw - 1rem), 30rem) !important;
+  max-height: calc(100dvh - 1rem) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 20px !important;
+}
+.po-net-choice-dialog .po-net-choice-option {
+  min-height: 72px !important;
+  align-items: flex-start !important;
+  padding: 13px 14px !important;
+}
+.po-net-choice-dialog .po-net-choice-option > span:first-child {
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
+}
+.po-net-choice-dialog .po-net-choice-option .po-net-choice-check { margin-top: 2px; }
+.po-net-choice-dialog .po-payment-account-card {
+  min-width: 0 !important;
+  overflow: visible !important;
+}
+.po-net-choice-dialog .po-payment-account-card * {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.po-net-choice-dialog .po-payment-account-card button { min-height: 40px !important; }
+
+/* Compact modern authentication dialogs, matching the public login card. */
+.po-auth-dialog {
+  background: #FFFFFF !important;
+  border: 1px solid #D9CBEF !important;
+  box-shadow: 0 24px 70px rgba(34,19,64,.20), 0 4px 14px rgba(34,19,64,.08) !important;
+}
+.po-auth-dialog .po-dialog-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 2px;
+}
+.po-auth-dialog .po-badge-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: #452480 !important;
+  color: #FFFFFF !important;
+  font-size: 22px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(69,36,128,.20);
+}
+.po-auth-dialog .po-dialog-hero [data-slot="dialog-title"] { font-size: 1.25rem !important; line-height: 1.35 !important; }
+.po-auth-form { display: flex; flex-direction: column; gap: 11px; min-width: 0; }
+.po-auth-description {
+  padding: 9px 11px;
+  border: 1px solid #E5DDF0;
+  border-radius: 14px;
+  background: #F8F6FC;
+  color: #6B6278;
+  font-size: .76rem;
+  line-height: 1.7;
+  text-align: center;
+}
+.po-auth-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.po-auth-field > label,
+.po-auth-recovery-label { color: #221340 !important; font-size: .78rem !important; font-weight: 800 !important; line-height: 1.3; }
+.po-auth-text-input {
+  width: 100% !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  border: 1px solid #D9CBEF !important;
+  border-radius: 14px !important;
+  background: #F7F5FB !important;
+  color: #221340 !important;
+  font-size: .9rem !important;
+  box-shadow: inset 0 1px 2px rgba(34,19,64,.04) !important;
+}
+.po-auth-text-input:focus { border-color: #452480 !important; background: #FFFFFF !important; box-shadow: 0 0 0 3px rgba(69,36,128,.12) !important; }
+.po-auth-dialog .po-auth-field .po-phone-field {
+  display: flex;
+  height: 46px !important;
+  min-height: 46px !important;
+  gap: 6px !important;
+  padding: 0 !important;
+  border: 1px solid #D9CBEF !important;
+  border-radius: 14px !important;
+  background: #F7F5FB !important;
+  box-shadow: inset 0 1px 2px rgba(34,19,64,.04) !important;
+}
+.po-auth-dialog .po-auth-field .po-phone-field > div:first-child { height: 44px !important; min-height: 44px !important; border: 0 !important; border-radius: 12px !important; background: #EEEAF5 !important; padding-inline: 9px !important; color: #452480 !important; font-size: .75rem !important; }
+.po-auth-dialog .po-auth-field .po-phone-field > div:last-child,
+.po-auth-dialog .po-auth-field .po-phone-field input { height: 44px !important; min-height: 44px !important; }
+.po-auth-dialog .po-auth-field .po-phone-field input { border: 0 !important; border-radius: 12px !important; background: transparent !important; padding-inline: 9px 36px !important; color: #221340 !important; font-size: .9rem !important; box-shadow: none !important; }
+.po-auth-dialog .po-auth-field .po-phone-field:focus-within { border-color: #452480 !important; background: #FFFFFF !important; box-shadow: 0 0 0 3px rgba(69,36,128,.12) !important; }
+.po-auth-dialog .po-filled-field-icon { color: #452480 !important; }
+.po-auth-recovery { display: flex; flex-direction: column; gap: 6px; }
+.po-auth-recovery-options,
+.po-auth-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.po-auth-recovery-option,
+.po-auth-choice { display: flex; min-width: 0; min-height: 44px; align-items: center; justify-content: center; gap: 6px; border: 1px solid #D9CBEF; border-radius: 13px; background: #F7F5FB; color: #6B6278; font-size: .78rem; font-weight: 800; transition: border-color .16s ease, background .16s ease, color .16s ease, box-shadow .16s ease; }
+.po-auth-recovery-option.is-selected,
+.po-auth-choice.is-selected { border-color: #452480; background: #F3EEF8; color: #452480; box-shadow: 0 5px 14px rgba(69,36,128,.10); }
+.po-auth-note { color: #6B6278; font-size: .68rem; line-height: 1.4; }
+.po-auth-submit { width: 100% !important; min-height: 47px !important; height: 47px !important; border-radius: 14px !important; background: #452480 !important; color: #FFFFFF !important; font-size: .9rem !important; font-weight: 900 !important; box-shadow: 0 9px 18px rgba(69,36,128,.16) !important; }
+.po-auth-submit:hover { background: #5A2FA0 !important; }
+.po-auth-secondary-link { width: 100%; min-height: 30px; color: #452480; font-size: .75rem; font-weight: 800; text-align: center; }
+.po-auth-secondary-link:hover { text-decoration: underline; }
+@media (max-width: 640px) {
+  .po-net-choice-dialog { padding: 16px !important; border-radius: 22px !important; }
+  .po-auth-dialog { padding: 16px !important; border-radius: 22px !important; }
+  .po-auth-dialog .po-dialog-hero { gap: 5px; }
+}
+
+/* Phone status bar: Capacitor runs the web view edge-to-edge, so the shell
+   header and drawers keep a top inset equal to the status bar height. */
+.app-safe-top {
+  padding-top: 0;
+  padding-top: max(env(safe-area-inset-top, 0px), var(--native-safe-top, 0px));
+}
+
+[data-testid="public-order"] .po-auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 18px; padding: 4px; border-radius: 1rem; background: #F3EEF8; }
+[data-testid="public-order"] .po-auth-tabs button { height: 46px; border-radius: .8rem; font-size: 14px; font-weight: 700; color: #6B6278; transition: background-color .2s, color .2s, box-shadow .2s; }
+[data-testid="public-order"] .po-auth-tabs button.is-active { background: #fff; color: #452480; font-weight: 900; box-shadow: 0 4px 12px rgba(69,36,128,.12); }
+[data-testid="public-order"] .po-register-inline { animation: direct-upgrade-in .3s ease-out both; }
+[data-testid="public-order"] .po-auth-alt { margin-top: 18px; display: grid; gap: 10px; }
+[data-testid="public-order"] .po-auth-or { display: flex; align-items: center; gap: 10px; color: #8B819A; font-size: 12px; font-weight: 800; }
+[data-testid="public-order"] .po-auth-or::before, [data-testid="public-order"] .po-auth-or::after { content: ""; flex: 1; height: 1px; background: #E5DDF0; }
+[data-testid="public-order"] .po-direct-buy-btn { display: flex; align-items: center; justify-content: center; gap: 8px; height: 50px; border: 1.5px solid #452480; border-radius: .9rem; background: #fff; color: #452480; font-size: 14px; font-weight: 900; transition: background-color .2s, transform .15s; }
+[data-testid="public-order"] .po-direct-buy-btn:hover { background: #F6F1FC; }
+[data-testid="public-order"] .po-direct-buy-btn:active, [data-testid="public-order"] .po-help-btn:active { transform: scale(.98); }
+[data-testid="public-order"] .po-help-btn { display: flex; align-items: center; justify-content: center; gap: 6px; height: 42px; border-radius: .9rem; color: #15803D; background: #F0FDF4; font-size: 13px; font-weight: 800; transition: background-color .2s, transform .15s; }
+[data-testid="public-order"] .po-help-btn:hover { background: #DCFCE7; }
+.direct-upgrade-card { margin-top: 14px; padding: 16px; border: 1.5px solid #D9CBE8; border-top: 3px solid #D4AF37; border-radius: 1.25rem; background: linear-gradient(180deg, #FFFFFF, #F6F1FC); text-align: right; animation: direct-upgrade-in .45s ease-out both; }
+.direct-upgrade-card.is-done { text-align: center; }
+.direct-upgrade-input { width: 100%; height: 44px; padding: 0 12px; border: 1px solid #DDD8E7; border-radius: .85rem; background: #fff; font-size: 14px; color: #221340; outline: none; transition: border-color .2s, box-shadow .2s; }
+.direct-upgrade-input:focus { border-color: #452480; box-shadow: 0 0 0 3px rgba(69,36,128,.12); }
+@keyframes direct-upgrade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.direct-account-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin: 10px 0 0; padding: 9px 12px; border: 1px dashed #D9CBE8; border-radius: 999px; background: #fff; font-size: 12px; color: #6B5A80; }
+.direct-account-strip button { font-size: 12px; line-height: 1.4; font-weight: 900; color: #452480; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Native React login refinement migrated from the live gwd-login-new layer. */
+[data-testid="public-order"].po-login-shell .po-login-promo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 74px;
+  margin: -4px 0 12px;
+  padding: 11px 14px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #1B0F35 0%, #452480 58%, #6C4BC9 100%);
+  color: #fff;
+  box-shadow: 0 9px 22px rgba(69,36,128,.22), inset 0 1px 0 rgba(255,255,255,.16);
+}
+[data-testid="public-order"].po-login-shell .po-login-promo-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  border: 1px solid rgba(241,215,122,.7);
+  border-radius: 14px;
+  background: rgba(255,255,255,.12);
+  color: #F1D77A;
+}
+[data-testid="public-order"].po-login-shell .po-login-promo-copy { min-width: 0; text-align: right; }
+[data-testid="public-order"].po-login-shell .po-login-promo-title { font-size: 15px; font-weight: 900; line-height: 1.2; }
+[data-testid="public-order"].po-login-shell .po-login-promo-subtitle { margin-top: 2px; color: #F1D77A; font-size: 11px; font-weight: 800; }
+[data-testid="public-order"].po-login-shell .po-login-promo-note { margin-top: 2px; color: #E9DFFF; font-size: 10px; font-weight: 700; line-height: 1.35; }
+[data-testid="public-order"].po-login-shell .po-password-toggle {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #452480;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+[data-testid="public-order"].po-login-shell .po-password-toggle:hover,
+[data-testid="public-order"].po-login-shell .po-password-toggle:focus-visible {
+  background: #F3EFFA;
+  outline: 2px solid rgba(108,75,201,.25);
+  outline-offset: 1px;
+}
+[data-testid="public-order"].po-login-shell .po-password-field input { padding-left: 48px !important; }
+[data-testid="public-order"].po-login-shell [data-testid="po-auth-tabs"] { order: 0; margin-bottom: 12px; }
+[data-testid="public-order"].po-login-shell .po-auth-alt { margin-top: 10px; }
+@media (max-width: 420px) {
+  [data-testid="public-order"].po-login-shell .po-login-promo { min-height: 70px; padding-inline: 11px; }
+  [data-testid="public-order"].po-login-shell .po-login-promo-icon { width: 38px; height: 38px; min-width: 38px; }
+}
+
+[data-testid="public-order"].po-login-shell .po-login-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  margin: 8px auto 0;
+  overflow: hidden;
+  border: 2px solid #E5E1F1;
+  border-radius: 25px;
+  background: #fff;
+  box-shadow: 0 5px 16px rgba(69,36,128,.10);
+}
+[data-testid="public-order"].po-login-shell .po-login-action {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 9px 6px;
+  border: 0;
+  background: #fff;
+  color: #452480;
+  font-size: clamp(12px, 2.8vw, 17px);
+  font-weight: 900;
+  line-height: 1.2;
+  cursor: pointer;
+}
+[data-testid="public-order"].po-login-shell .po-login-action + .po-login-action { border-right: 2px solid #E4E0EF; }
+[data-testid="public-order"].po-login-shell .po-login-action:active { background: #FAF8FF; transform: translateY(1px); }
+[data-testid="public-order"].po-login-shell .po-login-action-icon {
+  display: flex;
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #F1D66C, #D4AF37);
+  color: #452480;
+}
+[data-testid="public-order"].po-login-shell .po-login-actions-dialog { max-width: min(470px, calc(100vw - 2rem)); }
+[data-testid="public-order"].po-login-shell .po-login-contact-buttons { display: flex; gap: 9px; }
+[data-testid="public-order"].po-login-shell .po-login-contact-buttons a { flex: 1; display: flex; min-height: 44px; align-items: center; justify-content: center; gap: 6px; border-radius: 12px; text-decoration: none; font-weight: 800; }
+[data-testid="public-order"].po-login-shell .po-login-contact-call { background: linear-gradient(140deg, #1B0F35, #6C4BC9); color: #fff; }
+[data-testid="public-order"].po-login-shell .po-login-contact-whatsapp { border: 1px solid #A9DBB9; background: #E9F8EF; color: #17723E; }
+[data-testid="public-order"].po-login-shell .po-login-pos-note { margin-bottom: 12px; border: 1px solid #EAD58D; border-radius: 13px; background: #FFFDF5; padding: 10px 12px; color: #536985; font-size: 13px; line-height: 1.9; }
+[data-testid="public-order"].po-login-shell .po-login-pos-list { display: grid; gap: 8px; }
+[data-testid="public-order"].po-login-shell .po-login-pos-item { border: 1px solid #E5E0F0; border-radius: 13px; background: #fff; padding: 10px 12px; }
+[data-testid="public-order"].po-login-shell .po-login-pos-item b { display: block; color: #452480; font-size: 14px; }
+[data-testid="public-order"].po-login-shell .po-login-pos-item span { display: flex; align-items: center; gap: 4px; margin-top: 3px; color: #536985; font-size: 12px; }
+[data-testid="public-order"].po-login-shell .po-login-pos-empty { padding: 18px 5px; color: #536985; text-align: center; }
+@media (max-width: 600px) {
+  [data-testid="public-order"].po-login-shell .po-login-action { gap: 4px; padding: 8px 3px; font-size: 11px; }
+  [data-testid="public-order"].po-login-shell .po-login-action-icon { width: 38px; height: 38px; min-width: 38px; }
+  [data-testid="public-order"].po-login-shell .po-login-action-icon svg { width: 22px; height: 22px; }
+}
+
+/* Exact live-login visual parity: native React replacement for gwd-brandbar/gwd-buy/gwd-help-row. */
+[data-testid="public-order"].po-login-shell .po-login-brand {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  width: 100% !important;
+  margin: 0 0 8px !important;
+  padding: 4px 10px !important;
+  border: 1px solid #EDE7F6 !important;
+  border-radius: 18px !important;
+  background: #FFFFFF !important;
+  box-shadow: 0 2px 10px rgba(69,36,128,.07) !important;
+  text-align: right !important;
+}
+[data-testid="public-order"].po-login-shell .po-login-brand > div:first-child {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  width: 100% !important;
+  text-align: right !important;
+}
+[data-testid="public-order"].po-login-shell .po-login-brand img {
+  width: 58px !important;
+  height: 58px !important;
+  max-height: 58px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  object-fit: contain !important;
+}
+[data-testid="public-order"].po-login-shell .po-login-brand .po-brand-name {
+  flex: 1 1 auto !important;
+  font-size: 1.18rem !important;
+  line-height: 1.15 !important;
+  text-align: right !important;
+  letter-spacing: 0 !important;
+}
+[data-testid="public-order"].po-login-shell .po-login-brand .po-brand-subtitle {
+  margin-top: 1px !important;
+  color: #111111 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  line-height: 1.2 !important;
+  text-align: right !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-card .po-direct-buy-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+  min-height: 48px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, #1B0F35 0%, #452480 55%, #6C4BC9 100%) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 6px 18px rgba(69,36,128,.32), inset 0 1px 0 rgba(255,255,255,.15) !important;
+  font-size: 12.5px !important;
+  font-weight: 900 !important;
+  line-height: 1.3 !important;
+}
+[data-testid="public-order"].po-login-shell .po-direct-buy-copy { display: flex; flex-direction: column; align-items: center; }
+[data-testid="public-order"].po-login-shell .po-direct-buy-title { font-size: 12.5px; font-weight: 900; }
+[data-testid="public-order"].po-login-shell .po-direct-buy-subtitle { margin-top: 2px; color: #E9DFFF; font-size: 9px; font-weight: 700; line-height: 1.25; }
+[data-testid="public-order"].po-login-shell .po-help-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+  margin-top: 22px !important;
+  padding: 11px 16px !important;
+  border: 1.5px solid #E5DDF0 !important;
+  border-radius: 16px !important;
+  background: #FFFFFF !important;
+  color: #452480 !important;
+  font-size: 13.5px !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+  box-shadow: 0 2px 10px rgba(69,36,128,.10) !important;
+}
+[data-testid="public-order"].po-login-shell .po-help-icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #D4AF37 0%, #F0D98A 100%);
+  color: #1B0F35;
+  font-size: 15px;
+  font-weight: 900;
+}
+[data-testid="public-order"].po-login-shell .po-help-copy { display: flex; flex-direction: column; align-items: flex-start; }
+[data-testid="public-order"].po-login-shell .po-help-subtitle { margin-top: 1px; color: #8B7FA8; font-size: 10px; font-weight: 700; }
+
+/* Final native parity with the compact live login state. */
+[data-testid="public-order"].po-login-shell .po-login-welcome { display: none !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card {
+  max-width: 100% !important;
+  overflow: visible !important;
+  padding: 14px 14px 12px !important;
+  border-radius: 22px !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-card > div { margin-bottom: 0 !important; }
+[data-testid="public-order"].po-login-shell .po-auth-card form.space-y-3 {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-card form.space-y-3 > * { margin-top: 0 !important; margin-bottom: 0 !important; }
+[data-testid="public-order"].po-login-shell .po-credential-field { gap: 3px !important; }
+[data-testid="public-order"].po-login-shell form input { height: 46px !important; min-height: 46px !important; }
+[data-testid="public-order"].po-login-shell .po-auth-tabs {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  width: 100% !important;
+  gap: 6px !important;
+  margin: 0 0 10px !important;
+  padding: 5px !important;
+  border: 1px solid #E5DDF0 !important;
+  border-radius: 16px !important;
+  background: #F3EFFA !important;
+  overflow: hidden !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-tabs button {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  padding: 7px 4px !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  color: #452480 !important;
+  background: transparent !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  line-height: 1.35 !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-tabs button[aria-selected="true"] {
+  color: #fff !important;
+  background: linear-gradient(135deg, #1B0F35 0%, #6C4BC9 100%) !important;
+  box-shadow: 0 4px 12px rgba(69,36,128,.28) !important;
+}
+[data-testid="public-order"].po-login-shell .po-auth-alt { margin-top: 8px !important; }
+[data-testid="public-order"].po-login-shell .po-auth-or { margin: 10px 0 2px !important; }
+[data-testid="public-order"].po-login-shell .po-login-actions { margin-top: 8px !important; }
+
+[data-testid="public-order"].po-login-shell .po-login-install-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(27,15,53,.55);
+}
+[data-testid="public-order"].po-login-shell .po-login-install-card {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  padding: 22px 18px 18px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(27,15,53,.35);
+  text-align: center;
+}
+[data-testid="public-order"].po-login-shell .po-login-install-close {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #E5DDF0;
+  border-radius: 50%;
+  background: #FBFAFE;
+  color: #452480;
+  font-size: 20px;
+  font-weight: 800;
+}
+[data-testid="public-order"].po-login-shell .po-login-install-icon {
+  display: flex;
+  width: 64px;
+  height: 64px;
+  align-items: center;
+  justify-content: center;
+  margin: 2px auto 10px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #1B0F35 0%, #6C4BC9 100%);
+  color: #fff;
+  font-size: 30px;
+  font-weight: 900;
+}
+[data-testid="public-order"].po-login-shell .po-login-install-card h3 { margin: 0 0 6px; color: #221340; font-size: 17px; font-weight: 900; }
+[data-testid="public-order"].po-login-shell .po-login-install-card p { margin: 0 0 14px; color: #6B6278; font-size: 12.5px; font-weight: 600; line-height: 1.6; }
+[data-testid="public-order"].po-login-shell .po-login-install-go { display: block; width: 100%; padding: 12px; border: 0; border-radius: 15px; background: linear-gradient(135deg, #1B0F35 0%, #452480 55%, #6C4BC9 100%); color: #fff; font-size: 14px; font-weight: 900; }
+[data-testid="public-order"].po-login-shell .po-login-install-later { display: block; width: 100%; margin-top: 8px; padding: 8px; border: 0; background: transparent; color: #8B7FA8; font-size: 12.5px; font-weight: 700; }
