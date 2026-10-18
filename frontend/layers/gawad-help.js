@@ -54,11 +54,11 @@
     b.id = PILL_ID;
     b.setAttribute('role', 'button');
     b.setAttribute('aria-label', 'التعليمات — دليل الاستخدام');
-    b.innerHTML = '<span class="jwd-hi">؟</span><span class="jwd-lb"><b>التعليمات</b><i>دليل الاستخدام</i></span>';
+    b.innerHTML = '<span class="jwd-hi">؟</span><span class="jwd-lb"><b>التعليمات</b><i>دليل الاستخدام</i></span><span class="jwd-ch">‹</span>';
     (function(){
       if (document.getElementById('jwd-help-style2')) return;
       var st2 = document.createElement('style'); st2.id = 'jwd-help-style2';
-      st2.textContent = '#' + PILL_ID + '{height:46px!important;padding:0 15px!important;gap:9px!important}' + '#' + PILL_ID + ' .jwd-lb{display:flex;flex-direction:column;align-items:flex-start;line-height:1.15}' + '#' + PILL_ID + ' .jwd-lb b{font-size:13.5px;font-weight:800;color:#452480;letter-spacing:0}' + '#' + PILL_ID + ' .jwd-lb i{font-style:normal;font-size:10.5px;font-weight:600;color:#8B7FA8;margin-top:1px}';
+      st2.textContent = '#' + PILL_ID + '{height:48px!important;padding:0 16px!important;gap:10px!important;background:linear-gradient(135deg,#F8F5FE,#EFE8FB)!important;border:1px solid rgba(108,75,201,.30)!important;box-shadow:0 8px 20px rgba(27,15,53,.10)!important;cursor:pointer!important}' + '#' + PILL_ID + ' .jwd-hi{width:26px!important;height:26px!important;flex:0 0 26px!important;font-size:13px!important;font-weight:800!important;border-radius:999px!important;background:linear-gradient(145deg,#F7E29B,#D4AF37)!important;color:#3B2A05!important;box-shadow:0 4px 10px -4px rgba(212,175,55,.9)!important}' + '#' + PILL_ID + ' .jwd-lb{display:flex;flex-direction:column;align-items:flex-start;line-height:1.12}' + '#' + PILL_ID + ' .jwd-lb b{font-size:14.5px;font-weight:800;color:#452480}' + '#' + PILL_ID + ' .jwd-lb i{font-style:normal;font-size:11px;font-weight:600;color:#7A6E93;margin-top:2px}' + '#' + PILL_ID + ' .jwd-ch{font-size:18px;font-weight:800;color:#6C4BC9;line-height:1;margin-inline-start:2px}';
       (document.head || document.documentElement).appendChild(st2);
     })();;
     b.addEventListener('click', function () { window.location.href = HELP_URL; });
