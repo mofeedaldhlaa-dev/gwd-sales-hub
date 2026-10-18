@@ -3618,3 +3618,20 @@ body:has([data-testid="public-order"]) {
   [data-testid="public-order"] .po-dashboard-content { gap: 8px !important; }
   [data-testid="public-order"] .po-bottom-dock { margin-top: 8px !important; }
 }
+
+/* --- تجاوز أقوى لتقليص المسافات العمودية (2026-10-19) --- */
+[data-testid="public-order"] .po-dashboard-content { gap: 6px !important; }
+[data-testid="public-order"].po-portal-shell { padding-top: 6px !important; }
+[data-testid="public-order"] .po-main-card.po-dashboard-card { padding: 10px !important; }
+[data-testid="public-order"] .po-dashboard-head { margin-bottom: 4px !important; }
+[data-testid="public-order"] .po-bottom-dock { margin-top: 6px !important; }
+[data-testid="public-order"] .po-dashboard-card .po-service-tabs { margin-bottom: 0 !important; }
+[data-testid="public-order"] .po-section-head { margin-bottom: 8px !important; }
+[data-testid="public-order"] .po-quick-grid { margin-bottom: 12px !important; }
+[data-testid="public-order"] .po-notifs-list { padding-top: 8px !important; }
+[data-testid="public-order"] .po-dashboard-content > * { margin-bottom: 0 !important; }
+@media (max-width: 430px) {
+  [data-testid="public-order"] .po-dashboard-content { gap: 5px !important; }
+  [data-testid="public-order"].po-portal-shell { padding-top: 4px !important; }
+  [data-testid="public-order"] .po-main-card.po-dashboard-card { padding: 9px !important; }
+}
