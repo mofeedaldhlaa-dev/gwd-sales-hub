@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>التعليمات — دليل الاستخدام | شبكة جواد نت اللاسلكية</title>
+<link rel="icon" href="img/logo.png">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  :root{
+    --deep:#1C1038; --mid:#2E1A5E; --light:#46257F; --gold:#D8B24A; --goldsoft:#F2D98A;
+    --cream:#F7F4EF; --ink:#1B1233; --muted:#6B5C8A; --line:#E7E0F4;
+  }
+  body{
+    font-family:'Cairo','Noto Sans Arabic',system-ui,sans-serif; background:var(--cream);
+    color:var(--ink); min-height:100vh; line-height:1.7;
+  }
+  .wrap{max-width:640px;margin:0 auto;background:var(--cream);min-height:100vh;display:flex;flex-direction:column}
+  header{
+    background:linear-gradient(120deg,var(--deep),var(--mid) 60%,var(--light));
+    color:#fff;padding:16px 18px 18px;border-bottom:4px solid var(--gold);
+    position:sticky;top:0;z-index:20;box-shadow:0 6px 18px rgba(28,16,56,.25)
+  }
+  .hrow{display:flex;align-items:center;gap:12px}
+  .hrow img{width:52px;height:52px;border-radius:50%;background:#fff;padding:2px;flex:none}
+  .hrow .tt{font-size:22px;font-weight:900;line-height:1.2}
+  .hrow .ss{font-size:13px;font-weight:600;color:#DCCEFF;margin-top:2px}
+  .trial{
+    background:var(--gold);color:#2A1A05;font-weight:800;font-size:13px;
+    border-radius:10px;padding:7px 12px;margin-top:12px;text-align:center;line-height:1.5
+  }
+  .search{padding:14px 18px 8px}
+  .search input{
+    width:100%;border:1px solid var(--line);background:#fff;border-radius:16px;
+    padding:14px 44px 14px 16px;font-family:inherit;font-size:16px;font-weight:600;color:var(--ink);
+    box-shadow:0 4px 14px rgba(28,16,56,.06)
+  }
+  .search{position:relative}
+  .search .mag{position:absolute;left:30px;top:27px;font-size:18px;opacity:.45}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:6px 18px 10px;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    flex:none;background:#fff;border:1px solid var(--line);border-radius:999px;
+    padding:9px 15px;font-size:14px;font-weight:800;color:#3A2A66;cursor:pointer
+  }
+  .chip.on{background:var(--mid);color:var(--goldsoft);border-color:var(--mid)}
+  .count{padding:0 20px 8px;font-size:13.5px;font-weight:700;color:var(--muted)}
+  .list{padding:0 14px 22px;flex:1}
+  .q{
+    background:#fff;border:1px solid #EFEAF8;border-radius:18px;padding:14px 16px;margin-bottom:10px;
+    display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 4px 12px rgba(28,16,56,.05)
+  }
+  .q:active{transform:scale(.995)}
+  .q .n{
+    width:34px;height:34px;border-radius:50%;background:var(--gold);color:#2A1A05;flex:none;
+    display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px
+  }
+  .q .body{flex:1;min-width:0}
+  .q .t{font-size:16px;font-weight:800;color:var(--ink)}
+  .q .c{font-size:12px;font-weight:700;color:var(--muted);margin-top:3px}
+  .q .ar{color:#B9AED4;font-weight:900;font-size:20px}
+  .empty{padding:30px 20px;text-align:center;color:var(--muted);font-weight:700}
+  .answer{flex:1;padding:0 0 20px}
+  .aback{
+    display:flex;align-items:center;gap:8px;padding:14px 18px 6px;font-weight:800;color:var(--mid);cursor:pointer;font-size:15px
+  }
+  .acard{background:#fff;margin:6px 14px 0;border-radius:20px;border:1px solid #EFEAF8;padding:18px;box-shadow:0 6px 18px rgba(28,16,56,.06)}
+  .acard h1{font-size:20px;font-weight:900;line-height:1.5;margin-bottom:6px}
+  .acard .cat{display:inline-block;background:#F3F0FA;color:#3A2A66;font-size:12.5px;font-weight:800;border-radius:999px;padding:5px 12px;margin-bottom:10px}
+  .acard .short{font-size:15.5px;font-weight:700;color:#3A2A66;background:#F8F6FD;border-radius:14px;padding:12px 14px;line-height:1.8}
+  .imgbox{margin:14px 0 0;border:1px solid #EADFC8;border-radius:16px;overflow:hidden;background:var(--cream)}
+  .imgbox img{display:block;width:100%}
+  .imgbox .cap{font-size:12.5px;font-weight:700;color:var(--muted);text-align:center;padding:8px}
+  ol.steps{list-style:none;counter-reset:s;margin-top:16px}
+  ol.steps li{
+    counter-increment:s;position:relative;padding:8px 46px 8px 0;font-size:15.5px;font-weight:600;line-height:1.85;color:#241A3D
+  }
+  ol.steps li::before{
+    content:counter(s);position:absolute;right:0;top:9px;width:31px;height:31px;background:var(--mid);
+    color:var(--goldsoft);border-radius:50%;font-size:14px;font-weight:900;
+    display:flex;align-items:center;justify-content:center
+  }
+  .tip{
+    margin:16px 14px 0;background:#FFF7E3;border:1px solid #E7C878;border-right:7px solid var(--gold);
+    border-radius:16px;padding:14px 18px;font-size:15px;font-weight:700;color:#5A4409;line-height:1.85
+  }
+  .support{
+    margin:16px 14px 0;display:block;text-align:center;background:#25D366;color:#08351A;font-weight:900;
+    font-size:16.5px;padding:15px;border-radius:16px;text-decoration:none
+  }
+  .related{margin:14px 14px 0;font-size:14px;font-weight:700;color:var(--muted)}
+  .related a{color:var(--mid);text-decoration:none;font-weight:800;display:inline-block;margin:4px 0 0 10px}
+  footer{
+    background:linear-gradient(120deg,var(--deep),var(--mid));color:#fff;padding:16px 18px;
+    display:flex;justify-content:space-between;font-size:14px;font-weight:800;margin-top:auto
+  }
+  footer .g{color:var(--goldsoft);font-weight:900}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="hrow">
+      <img src="img/logo.png" alt="جواد نت">
+      <div>
+        <div class="tt">التعليمات</div>
+        <div class="ss">دليل الاستخدام — بوابة شراء الكروت في شبكة جواد نت</div>
+      </div>
+    </div>
+    
+  </header>
+
+  <section id="home">
+    <div class="search">
+      <span class="mag">🔎</span>
+      <input id="q" type="search" placeholder="ابحث عن سؤالك… مثال: كيف أشتري كرت" autocomplete="off">
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="count" id="count"></div>
+    <div class="list" id="list"></div>
+  </section>
+
+  <section id="answer" class="answer hidden"></section>
+
+  <footer>
+    <div>البوابة: <span class="g">gawad.cc</span></div>
+    <div>الدعم: <span class="g">784225716</span></div>
+  </footer>
+</div>
+
+<script>
+const CATS = [
+  ['login','الدخول والحساب'],
+  ['buy','شراء الكروت'],
+  ['send','الإرسال والمفضلة'],
+  ['pay','الدفع والسداد'],
+  ['cards','الكروت والعمليات'],
+];
+
+const Q = [
+ {c:'login',q:'كيف أدخل لشراء الكروت؟',s:'اكتب رقم جوالك المسجّل وكلمة المرور في شاشة الدخول، فتفتح لك الشاشة الرئيسية وفيها قسم شراء الكروت مباشرة.',img:[['shot_1_login.webp','شاشة الدخول مع تعبئة رقم الجوال وكلمة المرور']],st:['افتح رابط البوابة gawad.cc من متصفح جوالك.','اكتب رقم جوالك المسجّل في الشبكة بدون مفتاح الدولة؛ مفتاح ‎+967 محدد تلقائياً.','اكتب كلمة المرور ثم اضغط «تسجيل الدخول».','تفتح الشاشة الرئيسية وفيها رصيدك وقسم شراء الكروت.','اختر الفئة والكمية ثم اضغط «شراء كرت».'],tip:'إن لم يكن لديك حساب اضغط «إنشاء حساب جديد»، وإن أردت الشراء بدون حساب فاضغط «اضغط هنا لشراء الآن» في الشاشة الأولى.',k:'دخول تسجيل login حساب رقم كلمة مرور شراء كروت'},
+ {c:'login',q:'كيف أنشئ حساباً جديداً؟',s:'من شاشة الدخول اختر «إنشاء حساب جديد»، واملأ البيانات واختر طريقة استلام كلمة المرور، ثم تُفعّله الإدارة.',img:[['shot_2_register.webp','نموذج إنشاء الحساب بعد تعبئة البيانات']],st:['اضغط «إنشاء حساب جديد» في شاشة الدخول.','اختر نوع الحساب: عميل أو نقطة بيع.','اكتب الاسم الرباعي ورقم الجوال والعنوان (المدينة والحي وأقرب معلم).','اختر طريقة استلام بيانات الدخول: واتساب أو رسالة نصية SMS.','اضغط «إرسال طلب إنشاء حساب» وتنتظر تفعيل الإدارة.'],tip:'تصلك كلمة المرور على الطريقة التي اخترتها بعد تفعيل الطلب.',k:'إنشاء حساب جديد تسجيل تسجيل حساب register طلب'},
+ {c:'login',q:'نسيت كلمة المرور، ماذا أفعل؟',s:'اضغط «نسيت كلمة المرور؟» وأدخل رقمك واختر واتساب أو رسالة نصية، فيصلك رمز تحقق لإعادة التعيين.',img:[['h_forgot.webp','نافذة استعادة كلمة المرور']],st:['اضغط «نسيت كلمة المرور؟» أسفل حقل كلمة المرور.','اكتب رقم جوالك المسجل.','اختر طريقة الإرسال: واتساب أو SMS.','اضغط «إرسال الطلب» ثم استخدم رمز التحقق الذي يصلك.'],tip:'الرمز يصل على الرقم المسجل نفسه، فإن لم يصل تأكد من الرقم أو تواصل مع الدعم.',k:'نسيت كلمة المرور استعادة رمز تحقق تعيين'},
+ {c:'login',q:'كيف أغيّر كلمة المرور؟',s:'من تبويب «الحساب» اضغط «تغيير كلمة المرور» وأدخل الكلمة الحالية والجديدة ثم احفظ.',img:[['h_change_password.webp','نافذة تغيير كلمة المرور']],st:['افتح تبويب «الحساب» من الشريط السفلي.','اضغط «تغيير كلمة المرور».','اكتب كلمة المرور الحالية ثم الجديدة وتأكيدها.','اضغط «حفظ».'],tip:'اختر كلمة مرور قوية ولا تشاركها مع أي شخص؛ الشبكة لا تطلبها منك في أي رسالة.',k:'تغيير كلمة المرور حساب حفظ'},
+ {c:'login',q:'ظهرت لي «كلمة السر غير صحيحة» — ما الأسباب؟',s:'غالباً الرقم غير مطابق للمسجل، أو لغة لوحة المفاتيح عربية أثناء كتابة كلمة المرور، أو مسافة زائدة.',img:[['shot_1_login.webp','شاشة الدخول']],st:['تأكد أن الرقم هو المسجل في الشبكة وبدون مفتاح الدولة.','تأكد أن لوحة المفاتيح بالإنجليزية عند كتابة كلمة المرور.','تأكد من عدم وجود مسافة قبل أو بعد الكلمة.','إن كنت نسيت الكلمة استخدم «نسيت كلمة المرور؟» بدل تكرار المحاولات.'],tip:'تكرار المحاولات الخاطئة 15 مرة يحظر الرقم 24 ساعة.',k:'كلمة السر غير صحيحة خطأ دخول فشل'},
+
+ {c:'buy',q:'كيف أشتري كرت نت؟',s:'اختر الفئة والكمية من قسم شراء كرت، راجع السعر، ثم اضغط «شراء كرت» واستلم رقم الكرت.',img:[['shot_4_categories.webp','قائمة الفئات المتاحة'],['shot_5_ready.webp','تأكيد الفئة والكمية والسعر'],['shot_6_success.webp','نجاح الطلب مع رقم الكرت']],st:['من الشاشة الرئيسية اضغط حقل «الفئة» واختر الفئة المطلوبة.','حدّد الكمية؛ يتحدّث السعر والإجمالي تلقائياً.','اضغط زر «شراء كرت».','تظهر شاشة «تم تنفيذ طلبك بنجاح» مع رقم الكرت.','اضغط «نسخ» لنسخ الرقم، أو «طلب جديد» لشراء كرت آخر.'],tip:'المبلغ يُخصم من سقف حسابك، وتظهر المديونية بعد العملية في نفس الشاشة.',k:'شراء كرت نت فئة كمية سعر'},
+ {c:'buy',q:'هل أستطيع الشراء بدون حساب؟',s:'نعم، من الشاشة الأولى اضغط «اضغط هنا لشراء الآن»، واختر الفئة وطريقة الدفع وسدّد القيمة ثم أدخل رقم مرجع العملية.',img:[['h_direct_purchase.webp','شاشة الشراء بدون حساب']],st:['من شاشة الدخول اضغط «اضغط هنا لشراء الآن».','اختر فئة الكرت.','اختر طريقة الدفع المتاحة التي تظهر لك.','سدّد القيمة ثم أدخل رقم مرجع العملية للتحقق الآلي.','يصلك الكرت بعد التحقق.'],tip:'لا تحتاج تسجيل دخول، ويمكنك لاحقاً إنشاء حساب بنفس الرقم لمتابعة عملياتك.',k:'بدون حساب شراء مباشر زائر دفع'},
+
+ {c:'send',q:'كيف أرسل الكرت لرقم آخر؟',s:'فعّل خيار «إرسال الكرت لرقم آخر»، اكتب رقم المستلم واختر طريقة الإرسال، ثم أكمل الشراء.',img:[['shot_7_send_other.webp','قسم الإرسال لرقم آخر مع طريقة الإرسال']],st:['في قسم شراء كرت فعّل «إرسال الكرت لرقم آخر».','اكتب رقم جوال المستلم، أو اضغط أيقونة جهات الاتصال لاختياره.','اختر طريقة الإرسال: واتساب أو رسالة نصية.','اختر الفئة والكمية ثم اضغط «شراء كرت».','يصل الكرت إلى الرقم المُدخل مباشرة.'],tip:'تظهر في نص الرسالة بيانات الكرت، وكلمة المرور في سطر مستقل ليسهل نسخها على الجوال.',k:'إرسال كرت رقم آخر مستلم هدية'},
+ {c:'send',q:'كيف أضيف رقماً إلى المفضلة؟',s:'اكتب الرقم في قسم الإرسال، ثم اضغط أيقونة القلب واضغط «إضافة الرقم الحالي».',img:[['st_fav_add_before.webp','نافذة الحسابات المميزة وزر إضافة الرقم الحالي']],st:['فعّل «إرسال الكرت لرقم آخر» واكتب رقم المستلم.','اضغط أيقونة القلب بجانب حقل الرقم.','تفتح نافذة «الحسابات المميزة».','اضغط «إضافة الرقم الحالي» ليُحفظ الرقم مع اسمه.'],tip:'يمكنك تكرار العملية لأي عدد من الأرقام، وتظهر كلها للاختيار السريع.',k:'مفضلة إضافة رقم حفظ حسابات مميزة'},
+ {c:'send',q:'كيف أرسل كرتاً بسرعة لرقم محفوظ؟',s:'من تبويب «المفضلة» اضغط «إرسال كرت» بجانب الرقم، فيُعبأ المستلم تلقائياً وتكمل الشراء.',img:[['fz_fav_tab.webp','تبويب المفضلة مع زر إرسال كرت'],['fz_quick_send.webp','المستلم معبأ تلقائياً وجاهز للشراء']],st:['افتح تبويب «المفضلة» من الشريط السفلي.','اضغط «إرسال كرت» بجانب الرقم المطلوب.','يعود بك إلى الشاشة الرئيسية والمستلم معبأ تلقائياً.','اختر الفئة والكمية ثم اضغط «شراء كرت».'],tip:'يمكنك أيضاً اختيار الرقم من داخل قسم الإرسال عبر أيقونة القلب.',k:'مفضلة إرسال سريع تكرار رقم محفوظ'},
+
+ {c:'pay',q:'ما طرق السداد المتاحة؟',s:'الطرق المتاحة تُعرض لك داخل البوابة، وتُحدَّث تلقائياً كلما أضافت الإدارة طريقة جديدة.',img:[['h_banks.webp','شاشة الحسابات البنكية وطرق السداد']],st:['افتح تبويب «الحساب».','اضغط «الحسابات البنكية وطرق السداد».','تظهر «الطرق المتاحة» ولكل طريقة اسم الحساب ورقم الحساب أو المحفظة وزر نسخ.','ولكل طريقة زر «اضغط لمعاينة تعليمات السداد» يشرح خطواتها بالتفصيل.','إن أُضيفت طريقة جديدة لاحقاً تظهر هنا تلقائياً.'],tip:'استخدم الأرقام الظاهرة في البوابة فقط، ولا تحوّل إلى أي رقم يرسله لك شخص آخر.',k:'سداد دفع طرق نقاط بيع كريمي جيب محفظة'},
+ {c:'pay',q:'كيف أسدّد حسابي أو أضيف رصيداً عبر نقاط البيع أو البقالات؟',s:'اذهب إلى أي نقطة بيع أو بقالة تدعم الخدمة، أعطِ الموظف رقم جوالك المسجّل، وادفع المبلغ ليتم تحويل رصيد إلى حسابك.',img:[['h_notifications.webp','إشعار السداد في نافذة حسابك']],st:['اذهب إلى أي نقطة بيع أو بقالة تدعم الخدمة.','أعطِ الموظف رقم جوالك المسجّل في الشبكة.','ادفع المبلغ ليتم تحويل رصيد إلى حسابك.','بعد تحويل الرصيد يصلك إشعار السداد في نافذة حسابك، ويحتوي على المبلغ الذي تم سداده.'],tip:'يمكنك مراجعة إشعارات السداد في أي وقت من أيقونة الجرس أعلى الشاشة.',k:'تسديد نقاط بيع بقالة إشعار السداد تحويل رصيد إضافة رصيد شحن سداد حساب'},
+ {c:'pay',q:'كيف أدفع أو أسدّد قيمة الكرت؟',s:'اختر الطريقة المتاحة المناسبة لك من شاشة طرق السداد داخل البوابة، سدّد المبلغ، ثم أكّد العملية برقم المرجع.',img:[['h_banks.webp','طرق السداد داخل البوابة']],st:['افتح تبويب الحساب ثم «الحسابات البنكية وطرق السداد».','اختر الطريقة المتاحة لك وانسخ بيانات الحساب بزر النسخ.','سدّد المبلغ بالطريقة نفسها واحتفظ بإشعار العملية أو رقم المرجع.','اضغط «تأكيد عملية الدفع» وأدخل رقم المرجع، ويُحدَّث حسابك بعد التحقق.'],tip:'الطرق الظاهرة في البوابة هي المعتمدة رسمياً، وتُحدَّث تلقائياً عند إضافة طريقة جديدة.',k:'دفع سداد طريقة متاحة'},
+
+ {c:'cards',q:'أين أجد أرقام الكروت التي اشتريتها؟',s:'تظهر مباشرة في شاشة نجاح الطلب، ويمكنك الرجوع إليها في أي وقت من تبويب «العمليات».',img:[['shot_6_success.webp','شاشة نجاح الطلب مع رقم الكرت'],['h_operations.webp','أرقام الكروت داخل تبويب العمليات']],st:['بعد الشراء تظهر شاشة النجاح وفيها أرقام الكروت المطلوبة.','اضغط «نسخ» لنسخ رقم الكرت.','لاحقاً افتح تبويب «العمليات» وستجد الرقم داخل كل طلب كرت.','يمكنك «طباعة الطلب» لحفظه PDF.'],tip:'احتفظ برقم الكرت حتى تنتهي صلاحيته.',k:'أرقام كروت شراء سجل'},
+ {c:'cards',q:'كيف أرى عملياتي السابقة؟',s:'من تبويب «العمليات» اختر الفترة (يومي/شهري/سنوي/مخصص) ثم اضغط بحث.',img:[['h_operations.webp','تبويب العمليات مع الفلاتر والتفاصيل']],st:['افتح تبويب «العمليات» من الشريط السفلي.','اختر الفترة: يومي، شهري، سنوي، أو مخصص.','حدّد التاريخ إن اخترت «مخصص».','اضغط «بحث» لتظهر الطلبات والتحويلات وتأكيدات الدفع مع تفاصيلها.'],tip:'كل عملية تعرض النوع والفئة والكمية والإجمالي وأرقام الكروت.',k:'عمليات سابقة سجل بحث فترة فلتر'},
+ {c:'cards',q:'كيف أطبع كشف حساب؟',s:'من تبويب الحساب اضغط «طباعة كشف حساب»، اختر الفترة ثم اضغط طباعة.',img:[['h_statement.webp','نافذة طباعة كشف الحساب']],st:['افتح تبويب «الحساب».','اضغط «طباعة كشف حساب».','اختر الفترة: يومي، شهري، سنوي، أو مخصص.','اضغط «طباعة»، ثم احفظ الملف PDF من نافذة الطباعة.'],tip:'كشف الحساب مفيد للمطابقة عند وجود أي اختلاف في الرصيد.',k:'كشف حساب طباعة pdf'},
+ {c:'cards',q:'هل يمكنني الشراء بالآجل (مديونية على حسابي)؟',s:'نعم، الشراء يُخصم من سقف حسابك المحدد من الإدارة وتظهر المديونية «ريال عليكم» حتى السداد.',img:[['shot_3_home.webp','بطاقة الرصيد والمديونية']],st:['لكل حساب سقف يحدده مدير الشبكة.','عند الشراء يُخصم المبلغ من السقف وتظهر «ريال عليكم».','سدّد من الطرق المتاحة في تبويب الحساب.','بعد السداد يعود السقف متاحاً للشراء.'],tip:'عند تجاوز السقف يتوقف الشراء حتى تسدّد جزءاً من الحساب.',k:'آجل مديونية سقف حساب دين'},
+
+];
+
+const norm = t => (t||'').toString()
+  .replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه').replace(/[ًٌٍَُِّْـ]/g,'')
+  .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+  .replace(/[^\u0621-\u064Aa-zA-Z0-9]+/g,' ').trim().toLowerCase();
+
+const el = id => document.getElementById(id);
+let state = {cat:'all', q:''};
+
+function renderChips(){
+  el('chips').innerHTML = [['all','الكل'],...CATS].map(([k,v]) =>
+    '<div class="chip '+(state.cat===k?'on':'')+'" data-k="'+k+'">'+v+'</div>').join('');
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    state.cat = c.dataset.k; renderChips(); renderList();
+  });
+}
+
+function renderList(){
+  const nq = norm(state.q);
+  const items = Q.filter(x => (state.cat==='all' || x.c===state.cat) &&
+    (!nq || norm(x.q+' '+x.s+' '+x.k+' '+(x.st||[]).join(' ')).includes(nq)));
+  el('count').textContent = items.length + ' سؤال' + (state.cat==='all' ? ' في كل الخدمات' : '');
+  el('list').innerHTML = items.length ? items.map(x => {
+    const i = Q.indexOf(x);
+    const cn = (CATS.find(c => c[0]===x.c)||['',''])[1];
+    return '<div class="q" data-i="'+i+'"><div class="n">'+(i+1)+'</div><div class="body"><div class="t">'+x.q+'</div><div class="c">'+cn+'</div></div><div class="ar">‹</div></div>';
+  }).join('') : '<div class="empty">لا يوجد سؤال مطابق… جرّب كلمة أخرى مثل «كرت» أو «سداد» أو «مفضلة»</div>';
+  document.querySelectorAll('.q').forEach(d => d.onclick = () => openQ(+d.dataset.i));
+}
+
+function openQ(i){
+  const x = Q[i];
+  const cn = (CATS.find(c => c[0]===x.c)||['',''])[1];
+  const imgs = (x.img||[]).map(([f,c]) =>
+    '<div class="imgbox"><img src="img/'+f+'" alt="'+c+'" loading="eager" decoding="async"><div class="cap">'+c+'</div></div>').join('');
+  const steps = (x.st||[]).map(s => '<li>'+s+'</li>').join('');
+  const rel = Q.map((y,j)=>({y,j})).filter(o => o.j!==i && o.y.c===x.c).slice(0,3)
+    .map(o => '<a href="#q='+o.j+'" data-j="'+o.j+'">'+o.y.q+' ←</a>').join('');
+  el('answer').innerHTML =
+    '<div class="aback" id="back">→ رجوع إلى قائمة الأسئلة</div>' +
+    '<div class="acard"><span class="cat">'+cn+'</span><h1>'+x.q+'</h1><div class="short">'+x.s+'</div>'+imgs+
+    '<ol class="steps">'+steps+'</ol></div>' +
+    (x.tip ? '<div class="tip"><b>ملاحظة مهمة:</b> '+x.tip+'</div>' : '') +
+    '<a class="support" href="https://wa.me/967784225716?text='+encodeURIComponent('مرحباً، أحتاج مساعدة بخصوص: '+x.q)+'" target="_blank" rel="noopener">لم تجد إجابتك؟ تواصل مع الدعم على واتساب</a>' +
+    (rel ? '<div class="related">أسئلة ذات صلة:<br>'+rel+'</div>' : '');
+  el('home').classList.add('hidden');
+  el('answer').classList.remove('hidden');
+  window.scrollTo({top:0,behavior:'instant'});
+  location.hash = 'q='+i;
+  el('back').onclick = back;
+  document.querySelectorAll('.related a').forEach(a => a.onclick = e => { e.preventDefault(); openQ(+a.dataset.j); });
+}
+
+function back(){
+  el('answer').classList.add('hidden');
+  el('home').classList.remove('hidden');
+  history.replaceState(null,'','#');
+  window.scrollTo({top:0,behavior:'instant'});
+}
+
+el('q').addEventListener('input', e => { state.q = e.target.value; renderList(); });
+
+function boot(){
+  renderChips(); renderList();
+  const m = (location.hash||'').match(/q=(\d+)/);
+  if (m && Q[+m[1]]) openQ(+m[1]);
+}
+boot();
+</script>
+
+<button id="gwd-help-close" onclick="history.length>1?history.back():location.assign('/')" aria-label="إغلاق"
+ style="position:fixed;top:12px;left:12px;z-index:9999;width:38px;height:38px;border-radius:50%;border:1.5px solid #E5DDF0;
+ background:#fff;color:#452480;font-size:20px;font-weight:800;line-height:1;cursor:pointer;
+ box-shadow:0 4px 14px rgba(69,36,128,.22);display:flex;align-items:center;justify-content:center">✕</button>
+</body>
+</html>
